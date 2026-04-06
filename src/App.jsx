@@ -5,7 +5,7 @@ import {
   LayoutDashboard, BookOpen, Edit, Trash2, Plus, Activity, Landmark,
   BookText, Calculator, Globe, Microscope, Earth, FlaskConical, Zap,
   ChevronRight, ArrowLeft, Layers, FolderOpen, FileQuestion, LogOut,
-  Save, X, Check, Link, Upload, Trophy, ShieldAlert, ShieldCheck, Eye,
+  Save, X, Check, Link, Upload, Download, Trophy, ShieldAlert, ShieldCheck, Eye,
   Key, RefreshCw, Copy, Lock, Headset, Users, UserPlus, Radio,
   CreditCard, TrendingUp, Calendar, Settings, MessageSquare,
   Inbox, Bug, Lightbulb, MoreHorizontal, Ban, Filter,
