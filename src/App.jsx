@@ -531,10 +531,23 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
   async function addTopic(e) { e.preventDefault(); if (!newName.trim()) return; await supabase.from('topics').insert({ name: newName.trim(), tag: newTag.trim() || slug(newName.trim()), subject_id: subjectId, sort_order: topics.length, is_active: true }); setNewName(''); setNewTag(''); setShowAdd(false); load(); }
   async function renameTopic(id, name) { await supabase.from('topics').update({ name }).eq('id', id); setEditId(null); load(); }
 
+  const [showImport, setShowImport] = useState(false);
+  const hasTemplate = !!TEMPLATES[formatTable];
+
   if (loading) return <Spinner />;
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Тем: <strong>{topics.length}</strong></span>{canEdit && <Btn onClick={() => setShowAdd(!showAdd)}><Plus size={16} /> Додати тему</Btn>}</div>
+      <div className="flex justify-between items-center">
+        <span className="text-sm text-slate-500">Тем: <strong>{topics.length}</strong></span>
+        <div className="flex gap-2">
+          {canEdit && hasTemplate && <>
+            <button onClick={() => downloadTemplate(formatTable)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium"><Download size={14} /> Шаблон .xlsx</button>
+            <button onClick={() => setShowImport(!showImport)} className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-sm font-medium"><Upload size={14} /> Імпорт з Excel</button>
+          </>}
+          {canEdit && <Btn onClick={() => setShowAdd(!showAdd)}><Plus size={16} /> Додати тему</Btn>}
+        </div>
+      </div>
+      {showImport && canEdit && <ExcelImport formatTable={formatTable} subjectId={subjectId} onImported={() => { setShowImport(false); load(); }} />}
       {showAdd && canEdit && <form onSubmit={addTopic} className="bg-white border border-emerald-200 rounded-xl p-4 flex gap-3 items-end shadow-sm">
         <div className="flex-1"><label className="block text-sm font-medium text-slate-600 mb-1">Назва</label><input value={newName} onChange={e => setNewName(e.target.value)} className="inp w-full" required /></div>
         <div className="w-48"><label className="block text-sm font-medium text-slate-600 mb-1">Тег</label><input value={newTag || slug(newName)} onChange={e => setNewTag(e.target.value)} className="inp w-full" /></div>
