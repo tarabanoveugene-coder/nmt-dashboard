@@ -17,7 +17,7 @@ function FormWrap({ title, color = 'blue', onCancel, onSubmit, saving, children 
         <h3 className="font-semibold text-slate-800">{title}</h3>
         <button type="button" onClick={onCancel} className="p-1 text-slate-400 hover:text-slate-600"><X size={20} /></button>
       </div>
-      <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+      <div className="p-6 space-y-4">
         {children}
       </div>
       <div className="flex justify-end gap-3 p-4 border-t border-slate-100 bg-slate-50 sticky bottom-0">
