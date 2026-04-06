@@ -1,12 +1,53 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, createContext, useContext } from 'react';
 import { supabase } from './lib/supabase';
 import {
-  LayoutDashboard, BookOpen, Users, Settings, Edit, Trash2, Plus,
-  Activity, Landmark, BookText, Calculator, Globe, Microscope, Earth,
-  FlaskConical, Zap, ChevronRight, ArrowLeft, Layers, FolderOpen,
-  FileQuestion, LogOut, Save, X, Check, Image, Link, Upload, Trophy
+  LayoutDashboard, BookOpen, Edit, Trash2, Plus, Activity, Landmark,
+  BookText, Calculator, Globe, Microscope, Earth, FlaskConical, Zap,
+  ChevronRight, ArrowLeft, Layers, FolderOpen, FileQuestion, LogOut,
+  Save, X, Check, Link, Upload, Trophy, ShieldAlert, ShieldCheck, Eye,
+  Key, RefreshCw, Copy, Lock, Headset, Users, UserPlus, Radio,
+  CreditCard, TrendingUp, Calendar, Settings
 } from 'lucide-react';
 
+// ══════════════════════════════════════════════════════════════════════════
+// AUTH CONTEXT
+// ══════════════════════════════════════════════════════════════════════════
+const AuthCtx = createContext(null);
+function useAuth() { return useContext(AuthCtx); }
+
+function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem('admin_token');
+    if (token) {
+      supabase.from('admin_sessions').select('*, admin_users(*)').eq('token', token).gt('expires_at', new Date().toISOString()).single()
+        .then(({ data }) => { if (data?.admin_users) setUser(data.admin_users); setLoading(false); })
+        .catch(() => { localStorage.removeItem('admin_token'); setLoading(false); });
+    } else setLoading(false);
+  }, []);
+
+  async function login(email, password) {
+    const { data: u } = await supabase.from('admin_users').select('*').eq('email', email).eq('password_hash', password).eq('status', 'active').single();
+    if (!u) throw new Error('Невірний email або пароль');
+    const token = crypto.randomUUID();
+    const expires = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+    await supabase.from('admin_sessions').insert({ user_id: u.id, token, expires_at: expires });
+    await supabase.from('admin_users').update({ last_login_at: new Date().toISOString() }).eq('id', u.id);
+    localStorage.setItem('admin_token', token);
+    setUser(u);
+  }
+
+  function logout() { localStorage.removeItem('admin_token'); setUser(null); }
+
+  if (loading) return <div className="h-screen flex items-center justify-center"><Spinner /></div>;
+  return <AuthCtx.Provider value={{ user, login, logout }}>{children}</AuthCtx.Provider>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════════════════════════
 const SUBJECTS = [
   { id: 'history_ua', name: 'Історія України', icon: Landmark },
   { id: 'ukr', name: 'Українська мова', icon: BookText },
@@ -21,42 +62,38 @@ const SUBJECTS = [
 const FORMATS = [
   { id: 'express', name: 'Експрес', desc: 'Бібліотека усіх питань', table: 'questions' },
   { id: 'thematic', name: 'Тематичний', desc: 'Питання за темами', table: 'questions' },
-  { id: 'pairs', name: 'Логічні пари', desc: 'Встановлення відповідності між елементами', table: 'logical_pairs_questions' },
+  { id: 'pairs', name: 'Логічні пари', desc: 'Встановлення відповідності', table: 'logical_pairs_questions' },
   { id: 'blitz', name: 'Бліц так/ні', desc: 'Швидкі питання з двома варіантами', table: 'blitz_questions' },
   { id: 'gallery', name: 'Галерея', desc: 'Питання на основі зображень', table: 'gallery_questions' },
   { id: 'sevens', name: 'Сімки (3 з 7)', desc: 'Вибір 3 правильних із 7', table: 'seven_questions' },
-  { id: 'exam', name: 'Іспит на максимум', desc: 'Комбіновані питання у власних папках', table: 'exam_questions', isExam: true },
+  { id: 'exam', name: 'Іспит на максимум', desc: 'Комбіновані питання у папках', table: 'exam_questions', isExam: true },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════
-// IMAGE UPLOAD WIDGET — reusable for all question forms
+// IMAGE UPLOAD
 // ══════════════════════════════════════════════════════════════════════════
 function ImageField({ value, onChange }) {
-  const [mode, setMode] = useState(value ? 'url' : 'none'); // none | url | upload
+  const [mode, setMode] = useState(value ? 'url' : 'none');
   const fileRef = useRef();
-
   async function handleFile(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const file = e.target.files?.[0]; if (!file) return;
     const path = `questions/${Date.now()}_${file.name}`;
     const { error } = await supabase.storage.from('question-images').upload(path, file, { upsert: true });
-    if (error) { alert('Помилка завантаження: ' + error.message); return; }
+    if (error) { alert('Помилка: ' + error.message); return; }
     const { data } = supabase.storage.from('question-images').getPublicUrl(path);
-    onChange(data.publicUrl);
-    setMode('url');
+    onChange(data.publicUrl); setMode('url');
   }
-
   return (
     <div className="space-y-2">
-      <label className="block text-sm font-medium text-slate-600">Зображення (необов'язково)</label>
+      <label className="block text-sm font-medium text-slate-600">Зображення</label>
       <div className="flex gap-2">
-        <button type="button" onClick={() => { setMode('url'); }} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${mode === 'url' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}><Link size={14} /> URL</button>
-        <button type="button" onClick={() => { setMode('upload'); fileRef.current?.click(); }} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${mode === 'upload' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}><Upload size={14} /> Файл</button>
-        {value && <button type="button" onClick={() => { onChange(''); setMode('none'); }} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 hover:bg-red-100">Видалити</button>}
+        <button type="button" onClick={() => setMode('url')} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium ${mode === 'url' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}><Link size={14} /> URL</button>
+        <button type="button" onClick={() => { setMode('upload'); fileRef.current?.click(); }} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-500"><Upload size={14} /> Файл</button>
+        {value && <button type="button" onClick={() => { onChange(''); setMode('none'); }} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600">Видалити</button>}
       </div>
-      {mode === 'url' && <input value={value || ''} onChange={e => onChange(e.target.value)} placeholder="https://..." className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />}
+      {mode === 'url' && <input value={value || ''} onChange={e => onChange(e.target.value)} placeholder="https://..." className="inp w-full" />}
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-      {value && <img src={value} alt="" className="h-24 rounded-lg object-cover border border-slate-200" onError={e => e.target.style.display='none'} />}
+      {value && <img src={value} alt="" className="h-24 rounded-lg object-cover border" onError={e => e.target.style.display = 'none'} />}
     </div>
   );
 }
@@ -65,98 +102,341 @@ function ImageField({ value, onChange }) {
 // MAIN APP
 // ══════════════════════════════════════════════════════════════════════════
 export default function App() {
+  return <AuthProvider><AppInner /></AuthProvider>;
+}
+
+function AppInner() {
+  const { user, logout } = useAuth();
+  if (!user) return <LoginScreen />;
+
   const [activeMenu, setActiveMenu] = useState('subjects');
+  const canSeeUsers = user.role === 'superadmin';
+
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-800">
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col z-10">
+      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col z-10 shrink-0">
         <div className="p-6"><h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">NMT Admin</h1></div>
         <nav className="flex-1 px-4 space-y-2 mt-4">
           <SidebarItem icon={<LayoutDashboard size={20} />} label="Дашборд" active={activeMenu === 'dashboard'} onClick={() => setActiveMenu('dashboard')} />
           <SidebarItem icon={<BookOpen size={20} />} label="Предмети" active={activeMenu === 'subjects'} onClick={() => setActiveMenu('subjects')} />
-          <SidebarItem icon={<Users size={20} />} label="Користувачі" active={activeMenu === 'users'} onClick={() => setActiveMenu('users')} />
+          {canSeeUsers && <SidebarItem icon={<ShieldCheck size={20} />} label="Користувачі (Адмін)" active={activeMenu === 'users'} onClick={() => setActiveMenu('users')} />}
           <SidebarItem icon={<Settings size={20} />} label="Налаштування" active={activeMenu === 'settings'} onClick={() => setActiveMenu('settings')} />
         </nav>
-        <div className="p-4 border-t border-slate-100">
-          <button className="group flex items-center gap-3 px-4 py-3 w-full rounded-xl text-slate-600 hover:bg-rose-50 hover:text-rose-600 font-medium"><LogOut size={20} className="text-slate-400 group-hover:text-rose-600" /><span>Вийти</span></button>
+        <div className="p-4 border-t border-slate-100 space-y-2">
+          <div className="px-4 py-2 text-xs text-slate-500 truncate">{user.name} <RoleBadge role={user.role} /></div>
+          <button onClick={logout} className="group flex items-center gap-3 px-4 py-3 w-full rounded-xl text-slate-600 hover:bg-rose-50 hover:text-rose-600 font-medium"><LogOut size={20} className="text-slate-400 group-hover:text-rose-600" /><span>Вийти</span></button>
         </div>
       </aside>
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 z-10">
-          <h2 className="text-xl font-semibold">{activeMenu === 'dashboard' ? 'Огляд' : activeMenu === 'subjects' ? 'Управління контентом' : 'Розділ'}</h2>
-          <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">А</div>
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 z-10 shrink-0">
+          <h2 className="text-xl font-semibold">
+            {activeMenu === 'dashboard' && 'Огляд та Аналітика'}
+            {activeMenu === 'subjects' && 'Управління контентом'}
+            {activeMenu === 'users' && 'Керування доступом'}
+            {activeMenu === 'settings' && 'Налаштування'}
+          </h2>
+          <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">{user.name?.[0] || 'А'}</div>
         </header>
-        <div className="flex-1 overflow-auto p-8 bg-slate-50">
-          <div className="max-w-7xl mx-auto">
-            {activeMenu === 'dashboard' && <DashboardView />}
-            {activeMenu === 'subjects' && <SubjectsView />}
-            {activeMenu !== 'dashboard' && activeMenu !== 'subjects' && <div className="flex min-h-[400px] items-center justify-center text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200">Розділ у розробці</div>}
-          </div>
-        </div>
+        <div className="flex-1 overflow-auto p-8 bg-slate-50"><div className="max-w-7xl mx-auto">
+          {activeMenu === 'dashboard' && <DashboardView />}
+          {activeMenu === 'subjects' && <SubjectsView user={user} />}
+          {activeMenu === 'users' && canSeeUsers && <UsersAdminView />}
+          {activeMenu === 'settings' && <Empty text="Налаштування у розробці" />}
+        </div></div>
       </main>
     </div>
   );
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// DASHBOARD
+// LOGIN SCREEN
+// ══════════════════════════════════════════════════════════════════════════
+function LoginScreen() {
+  const { login } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault(); setError(''); setLoading(true);
+    try { await login(email, password); }
+    catch (err) { setError(err.message); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+      <form onSubmit={handleSubmit} className="bg-white p-8 rounded-2xl shadow-lg border border-slate-200 w-full max-w-md space-y-6">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">NMT Admin</h1>
+          <p className="text-slate-500 mt-2">Увійдіть в систему адміністрування</p>
+        </div>
+        {error && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
+        <div><label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="inp w-full" placeholder="admin@nmt.edu" required /></div>
+        <div><label className="block text-sm font-medium text-slate-700 mb-1.5">Пароль</label>
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="inp w-full" placeholder="••••••••" required /></div>
+        <button type="submit" disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium disabled:opacity-50">
+          {loading ? 'Вхід...' : 'Увійти'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// DASHBOARD (with real stats)
 // ══════════════════════════════════════════════════════════════════════════
 function DashboardView() {
   const [s, setS] = useState({});
   useEffect(() => {
     Promise.all([
-      supabase.from('questions').select('*', { count: 'exact', head: true }),
+      supabase.from('questions').select('*', { count: 'exact', head: true }).eq('is_active', true),
       supabase.from('topics').select('*', { count: 'exact', head: true }),
-      supabase.from('blitz_questions').select('*', { count: 'exact', head: true }),
-      supabase.from('logical_pairs_questions').select('*', { count: 'exact', head: true }),
-      supabase.from('gallery_questions').select('*', { count: 'exact', head: true }),
-      supabase.from('seven_questions').select('*', { count: 'exact', head: true }),
-      supabase.from('exam_questions').select('*', { count: 'exact', head: true }),
-    ]).then(([q, t, b, p, g, sv, e]) => setS({ q: q.count||0, t: t.count||0, b: b.count||0, p: p.count||0, g: g.count||0, s: sv.count||0, e: e.count||0 }));
+      supabase.from('blitz_questions').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('logical_pairs_questions').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('gallery_questions').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('seven_questions').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('exam_questions').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('admin_users').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    ]).then(([q, t, b, p, g, sv, e, au]) => setS({
+      q: q.count || 0, t: t.count || 0, b: b.count || 0, p: p.count || 0,
+      g: g.count || 0, s: sv.count || 0, e: e.count || 0, admins: au.count || 0,
+    }));
   }, []);
-  const total = (s.q||0)+(s.b||0)+(s.p||0)+(s.g||0)+(s.s||0)+(s.e||0);
+  const total = (s.q || 0) + (s.b || 0) + (s.p || 0) + (s.g || 0) + (s.s || 0) + (s.e || 0);
   return (
     <div className="space-y-6">
       <h3 className="text-lg font-medium text-slate-700">Ключові показники</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={<FileQuestion />} label="Всього питань" value={total} color="blue" />
-        <StatCard icon={<FolderOpen />} label="Тем" value={s.t||0} color="emerald" />
-        <StatCard icon={<BookOpen />} label="Предметів" value="1" color="indigo" />
+        <StatCard icon={<FolderOpen />} label="Тем" value={s.t || 0} color="emerald" />
+        <StatCard icon={<Users />} label="Адмінів" value={s.admins || 0} color="indigo" />
         <StatCard icon={<Activity />} label="Статус БД" value="Online" color="emerald" isLive />
+      </div>
+      <h3 className="text-lg font-medium text-slate-700">По форматах</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <MiniStat label="Експрес" value={s.q || 0} />
+        <MiniStat label="Бліц" value={s.b || 0} />
+        <MiniStat label="Пари" value={s.p || 0} />
+        <MiniStat label="Галерея" value={s.g || 0} />
+        <MiniStat label="Сімки" value={s.s || 0} />
+        <MiniStat label="Іспит" value={s.e || 0} />
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }) {
+  return <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm text-center"><div className="text-2xl font-bold text-slate-800">{value}</div><div className="text-xs text-slate-500 mt-1">{label}</div></div>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// USERS ADMINISTRATION (Supabase-backed)
+// ══════════════════════════════════════════════════════════════════════════
+function UsersAdminView() {
+  const [admins, setAdmins] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('list');
+  const [editUser, setEditUser] = useState(null);
+
+  async function load() { setLoading(true); const { data } = await supabase.from('admin_users').select('*').order('created_at'); setAdmins(data || []); setLoading(false); }
+  useEffect(() => { load(); }, []);
+
+  if (view === 'form') return <UserForm user={editUser} onBack={() => { setView('list'); setEditUser(null); load(); }} />;
+  if (loading) return <Spinner />;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div><h3 className="text-xl font-bold text-slate-800">Команда проекту</h3><p className="text-sm text-slate-500 mt-1">Керування доступами та ролями</p></div>
+        <Btn onClick={() => { setEditUser(null); setView('form'); }}><Plus size={18} /> Додати користувача</Btn>
+      </div>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
+        <table className="w-full text-left border-collapse min-w-[800px]">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+            <tr><th className="px-6 py-4 font-medium">Користувач</th><th className="px-6 py-4 font-medium">Роль</th><th className="px-6 py-4 font-medium">Доступ</th><th className="px-6 py-4 font-medium">Статус</th><th className="px-6 py-4 font-medium text-right">Дії</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 text-sm">
+            {admins.map(a => (
+              <tr key={a.id} className="hover:bg-slate-50/80 group">
+                <td className="px-6 py-4"><div className="font-medium text-slate-800">{a.name}</div><div className="text-slate-500 text-xs mt-0.5">{a.email}</div></td>
+                <td className="px-6 py-4"><RoleBadge role={a.role} /></td>
+                <td className="px-6 py-4"><AccessDesc role={a.role} subjects={a.allowed_subjects} formats={a.allowed_formats} /></td>
+                <td className="px-6 py-4"><span className={`px-3 py-1 rounded-full text-xs font-medium border flex w-max items-center gap-1.5 ${a.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}><span className={`w-1.5 h-1.5 rounded-full ${a.status === 'active' ? 'bg-emerald-500' : 'bg-red-500'}`} />{a.status === 'active' ? 'Активний' : 'Неактивний'}</span></td>
+                <td className="px-6 py-4 flex justify-end gap-2">
+                  <Abtn icon={<Edit size={16} />} onClick={() => { setEditUser(a); setView('form'); }} />
+                  <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Видалити?')) return; await supabase.from('admin_users').delete().eq('id', a.id); load(); }} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function RoleBadge({ role }) {
+  const m = { superadmin: ['bg-purple-50 text-purple-700', ShieldAlert, 'Супер адмін'], moderator: ['bg-blue-50 text-blue-700', Edit, 'Модератор'], analyst: ['bg-slate-100 text-slate-600', Eye, 'Аналітик'], support: ['bg-teal-50 text-teal-700', Headset, 'Підтримка'] };
+  const [cls, Icon, label] = m[role] || m.moderator;
+  return <span className={`px-3 py-1 rounded-lg font-semibold text-xs flex items-center gap-1.5 w-max ${cls}`}><Icon size={14} /> {label}</span>;
+}
+
+function AccessDesc({ role, subjects, formats }) {
+  if (role === 'superadmin') return <span className="text-purple-600 font-medium text-xs">Повний доступ</span>;
+  if (role === 'analyst') return <span className="text-slate-500 text-xs">Тільки перегляд</span>;
+  if (role === 'support') return <span className="text-teal-600 text-xs">Звернення користувачів</span>;
+  return <div className="flex flex-col gap-0.5"><span className="text-xs">Предметів: <strong className="text-blue-600">{subjects?.length || 0}</strong></span><span className="text-xs">Форматів: <strong className="text-blue-600">{formats?.length || 0}</strong></span></div>;
+}
+
+// ── USER CREATE / EDIT FORM ──
+function UserForm({ user, onBack }) {
+  const isNew = !user;
+  const [name, setName] = useState(user?.name || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [role, setRole] = useState(user?.role || 'moderator');
+  const [status, setStatus] = useState(user?.status || 'active');
+  const [pwd, setPwd] = useState('');
+  const [subjects, setSubjects] = useState(user?.allowed_subjects || []);
+  const [formats, setFormats] = useState(user?.allowed_formats || []);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { if (isNew) genPwd(); }, []);
+  function genPwd() { const c = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%"; let p = ""; for (let i = 0; i < 10; i++) p += c[Math.floor(Math.random() * c.length)]; setPwd(p); }
+  function toggleSubj(id) { setSubjects(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
+  function toggleFmt(id) { setFormats(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
+
+  async function handleSave() {
+    setSaving(true);
+    const payload = { name, email, role, status, allowed_subjects: subjects, allowed_formats: formats };
+    if (isNew) { payload.password_hash = pwd; await supabase.from('admin_users').insert(payload); }
+    else { if (pwd) payload.password_hash = pwd; await supabase.from('admin_users').update(payload).eq('id', user.id); }
+    setSaving(false); onBack();
+  }
+
+  return (
+    <div className="space-y-6 max-w-4xl">
+      <div className="flex items-center gap-4 border-b border-slate-200 pb-4">
+        <button onClick={onBack} className="p-2 -ml-2 rounded-lg text-slate-400 hover:bg-slate-100"><ArrowLeft size={20} /></button>
+        <div><h2 className="text-2xl font-bold text-slate-800">{isNew ? 'Новий користувач' : 'Редагування'}</h2><p className="text-slate-500 text-sm mt-1">Профіль та права доступу</p></div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* LEFT: Profile + Password */}
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">ПІБ</label><input value={name} onChange={e => setName(e.target.value)} className="inp w-full" placeholder="Іван Іванов" /></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">Email (Логін)</label><input value={email} onChange={e => setEmail(e.target.value)} className="inp w-full" placeholder="email@nmt.edu" /></div>
+            <div><label className="block text-sm font-medium text-slate-700 mb-1.5">Статус</label>
+              <select value={status} onChange={e => setStatus(e.target.value)} className="inp w-full"><option value="active">Активний</option><option value="inactive">Неактивний</option></select></div>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex items-center gap-2 text-slate-800 font-semibold"><Key size={18} className="text-amber-500" /> Пароль</div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 relative"><input type="text" readOnly value={pwd || '********'} className="inp w-full font-mono tracking-wider" />
+                {pwd && <button onClick={() => navigator.clipboard.writeText(pwd)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-blue-600"><Copy size={16} /></button>}
+              </div>
+            </div>
+            <button onClick={genPwd} className="flex items-center justify-center gap-2 w-full py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl text-sm font-medium"><RefreshCw size={16} /> Згенерувати новий</button>
+            <div className="flex items-start gap-2 text-xs text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-100"><Lock size={14} className="shrink-0 text-slate-400 mt-0.5" /><span>Користувач зможе замінити пароль після першої авторизації.</span></div>
+          </div>
+        </div>
+
+        {/* RIGHT: Role + Permissions */}
+        <div className="md:col-span-2 space-y-6">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">Роль</h3>
+            <div className="space-y-3">
+              {[
+                ['superadmin', ShieldAlert, 'text-purple-600', 'border-purple-200 bg-purple-50/50', 'Супер адмін', 'Повний контроль над системою'],
+                ['moderator', Edit, 'text-blue-600', 'border-blue-200 bg-blue-50/50', 'Модератор', 'Додає та редагує контент в дозволених предметах'],
+                ['analyst', Eye, 'text-slate-600', 'border-slate-200 bg-slate-50/50', 'Аналітик', 'Перегляд статистики без редагування'],
+                ['support', Headset, 'text-teal-600', 'border-teal-200 bg-teal-50/50', 'Підтримка', 'Доступ до звернень користувачів'],
+              ].map(([id, Icon, ic, ac, title, desc]) => (
+                <label key={id} className={`flex gap-4 p-4 rounded-xl border cursor-pointer transition-all ${role === id ? ac + ' ring-1 ring-offset-1 ring-blue-500/30' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                  <input type="radio" name="role" value={id} checked={role === id} onChange={() => setRole(id)} className="w-4 h-4 text-blue-600 mt-0.5" />
+                  <div><div className="flex items-center gap-2 mb-1"><Icon size={18} className={ic} /><span className="font-semibold text-slate-800">{title}</span></div><p className="text-sm text-slate-500">{desc}</p></div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {role === 'moderator' && (
+            <div className="bg-white p-6 rounded-2xl border border-blue-200 shadow-sm">
+              <div className="flex items-center gap-2 mb-6"><ShieldCheck size={20} className="text-blue-600" /><h3 className="text-lg font-semibold text-slate-800">Права модератора</h3></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div><h4 className="text-sm font-medium text-slate-700 mb-3 border-b pb-2">Предмети</h4>
+                  {SUBJECTS.map(s => { const I = s.icon; return (
+                    <label key={s.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
+                      <input type="checkbox" checked={subjects.includes(s.id)} onChange={() => toggleSubj(s.id)} className="w-4 h-4 text-blue-600 rounded" />
+                      <I size={16} className="text-slate-400" /><span className="text-sm">{s.name}</span>
+                    </label>);
+                  })}
+                </div>
+                <div><h4 className="text-sm font-medium text-slate-700 mb-3 border-b pb-2">Формати</h4>
+                  {FORMATS.filter(f => !f.isExam).map(f => (
+                    <label key={f.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
+                      <input type="checkbox" checked={formats.includes(f.id)} onChange={() => toggleFmt(f.id)} className="w-4 h-4 text-blue-600 rounded" />
+                      <span className="text-sm font-medium">{f.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-4">
+            <button onClick={onBack} className="px-6 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Скасувати</button>
+            <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-50">{saving ? 'Збереження...' : 'Зберегти'}</button>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// SUBJECTS + DRILL-DOWN
+// SUBJECTS VIEW (same as before, imports from existing code)
 // ══════════════════════════════════════════════════════════════════════════
-function SubjectsView() {
+function SubjectsView({ user }) {
   const [sid, setSid] = useState(SUBJECTS[0].id);
+  // Filter subjects for moderators
+  const visibleSubjects = user.role === 'moderator' && user.allowed_subjects?.length
+    ? SUBJECTS.filter(s => user.allowed_subjects.includes(s.id))
+    : SUBJECTS;
+
+  useEffect(() => { if (visibleSubjects.length && !visibleSubjects.find(s => s.id === sid)) setSid(visibleSubjects[0].id); }, [user]);
+
   return (
     <div className="flex flex-col gap-6">
       <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-100 flex overflow-x-auto gap-2">
-        {SUBJECTS.map(s => { const I = s.icon; const a = sid === s.id; return (
+        {visibleSubjects.map(s => { const I = s.icon; const a = sid === s.id; return (
           <button key={s.id} onClick={() => setSid(s.id)} className={`flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-xl whitespace-nowrap transition-all ${a ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}>
             <I size={18} className={a ? 'text-blue-600' : 'text-slate-400'} />{s.name}</button>);
         })}
       </div>
-      <DrillDown subject={SUBJECTS.find(s => s.id === sid)} />
+      <DrillDown subject={SUBJECTS.find(s => s.id === sid) || SUBJECTS[0]} user={user} />
     </div>
   );
 }
 
-function DrillDown({ subject }) {
+function DrillDown({ subject, user }) {
   const [fmt, setFmt] = useState(null);
   const [topic, setTopic] = useState(null);
   const [folder, setFolder] = useState(null);
   useEffect(() => { setFmt(null); setTopic(null); setFolder(null); }, [subject.id]);
   const SI = subject.icon;
 
+  // Filter formats for moderators
+  const visibleFormats = user.role === 'moderator' && user.allowed_formats?.length
+    ? FORMATS.filter(f => user.allowed_formats.includes(f.id))
+    : FORMATS;
+
   const level = !fmt ? 'formats' : fmt.isExam ? (folder ? 'exam-questions' : 'exam-folders') : (!topic ? 'topics' : 'questions');
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 min-h-[600px] flex flex-col">
-      {/* Breadcrumbs */}
       <div className="p-6 border-b border-slate-100">
         <div className="flex items-center text-sm font-medium text-slate-500 mb-4 gap-1">
           <button onClick={() => { setFmt(null); setTopic(null); setFolder(null); }} className={!fmt ? 'text-blue-600' : 'hover:text-blue-600'}><span className="flex items-center gap-1"><SI size={16} />{subject.name}</span></button>
@@ -167,58 +447,48 @@ function DrillDown({ subject }) {
         <div className="flex items-center gap-4">
           {(fmt || topic || folder) && <button onClick={() => { if (topic) setTopic(null); else if (folder) setFolder(null); else setFmt(null); }} className="p-2 -ml-2 rounded-lg text-slate-400 hover:bg-slate-100"><ArrowLeft size={20} /></button>}
           <h2 className="text-2xl font-bold text-slate-800">
-            {level === 'formats' && 'Оберіть формат'}
-            {level === 'topics' && 'Оберіть тему'}
-            {level === 'questions' && 'База питань'}
-            {level === 'exam-folders' && 'Папки іспиту'}
-            {level === 'exam-questions' && 'Питання іспиту'}
+            {level === 'formats' && 'Оберіть формат'}{level === 'topics' && 'Оберіть тему'}{level === 'questions' && 'База питань'}{level === 'exam-folders' && 'Папки іспиту'}{level === 'exam-questions' && 'Питання іспиту'}
           </h2>
         </div>
       </div>
-
       <div className="p-6 flex-1 bg-slate-50/50">
-        {level === 'formats' && <FormatsGrid subjectId={subject.id} onSelect={setFmt} />}
+        {level === 'formats' && <FormatsGrid subjectId={subject.id} formats={visibleFormats} onSelect={setFmt} />}
         {level === 'topics' && <TopicsTable subjectId={subject.id} formatTable={fmt.table} onSelect={setTopic} />}
-        {level === 'questions' && fmt.id === 'pairs' && <PairsView sid={subject.id} tag={topic.tag} />}
-        {level === 'questions' && fmt.id === 'blitz' && <BlitzView sid={subject.id} tag={topic.tag} />}
-        {level === 'questions' && fmt.id === 'gallery' && <GalleryView sid={subject.id} tag={topic.tag} />}
-        {level === 'questions' && fmt.id === 'sevens' && <SevensView sid={subject.id} tag={topic.tag} />}
-        {level === 'questions' && (fmt.id === 'express' || fmt.id === 'thematic') && <ExpressView sid={subject.id} tag={topic.tag} />}
+        {level === 'questions' && fmt.id === 'pairs' && <GenericTable sid={subject.id} tag={topic.tag} table="logical_pairs_questions" textKey="instruction" />}
+        {level === 'questions' && fmt.id === 'blitz' && <GenericTable sid={subject.id} tag={topic.tag} table="blitz_questions" textKey="text" />}
+        {level === 'questions' && fmt.id === 'gallery' && <GenericTable sid={subject.id} tag={topic.tag} table="gallery_questions" textKey="question_text" />}
+        {level === 'questions' && fmt.id === 'sevens' && <GenericTable sid={subject.id} tag={topic.tag} table="seven_questions" textKey="text" />}
+        {level === 'questions' && (fmt.id === 'express' || fmt.id === 'thematic') && <GenericTable sid={subject.id} tag={topic.tag} table="questions" textKey="question_text" />}
         {level === 'exam-folders' && <ExamFoldersView sid={subject.id} onSelect={setFolder} />}
-        {level === 'exam-questions' && <ExamQuestionsView sid={subject.id} folder={folder} />}
+        {level === 'exam-questions' && <GenericTable sid={subject.id} tag={null} table="exam_questions" textKey="question_type" folderId={folder.id} />}
       </div>
     </div>
   );
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// FORMATS GRID — real counts from each table
+// FORMATS GRID
 // ══════════════════════════════════════════════════════════════════════════
-function FormatsGrid({ subjectId, onSelect }) {
+function FormatsGrid({ subjectId, formats, onSelect }) {
   const [counts, setCounts] = useState({});
   useEffect(() => {
-    Promise.all(FORMATS.filter(f => f.table).map(async f => {
-      const { count } = await supabase.from(f.table).select('*', { count: 'exact', head: true }).eq(f.table === 'exam_questions' ? 'subject_id' : 'subject_id', subjectId).eq('is_active', true);
+    Promise.all(formats.filter(f => f.table).map(async f => {
+      const { count } = await supabase.from(f.table).select('*', { count: 'exact', head: true }).eq('subject_id', subjectId).eq('is_active', true);
       return [f.id, count || 0];
     })).then(entries => setCounts(Object.fromEntries(entries)));
   }, [subjectId]);
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {FORMATS.map(f => (
+      {formats.map(f => (
         <div key={f.id} onClick={() => onSelect(f)} className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-blue-400 hover:shadow-md cursor-pointer transition-all group flex flex-col h-full">
           <div className="flex items-start justify-between mb-3">
-            <div className={`p-3 rounded-xl transition-colors ${f.isExam ? 'bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-white' : 'bg-indigo-50 text-indigo-600 group-hover:bg-blue-600 group-hover:text-white'}`}>
-              {f.isExam ? <Trophy size={24} /> : <Layers size={24} />}
-            </div>
+            <div className={`p-3 rounded-xl transition-colors ${f.isExam ? 'bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-white' : 'bg-indigo-50 text-indigo-600 group-hover:bg-blue-600 group-hover:text-white'}`}>{f.isExam ? <Trophy size={24} /> : <Layers size={24} />}</div>
             <ChevronRight className="text-slate-300 group-hover:text-blue-500" />
           </div>
           <h3 className="font-semibold text-slate-800 text-lg group-hover:text-blue-700 mb-1">{f.name}</h3>
           <p className="text-sm text-slate-500 mb-4">{f.desc}</p>
-          <div className="pt-3 border-t border-slate-50 mt-auto flex items-center gap-1.5">
-            <FileQuestion size={14} className="text-slate-400" />
-            <span className="text-sm text-slate-500">Питань: <strong className="text-slate-700">{counts[f.id] ?? '...'}</strong></span>
-          </div>
+          <div className="pt-3 border-t border-slate-50 mt-auto flex items-center gap-1.5"><FileQuestion size={14} className="text-slate-400" /><span className="text-sm text-slate-500">Питань: <strong>{counts[f.id] ?? '...'}</strong></span></div>
         </div>
       ))}
     </div>
@@ -226,134 +496,82 @@ function FormatsGrid({ subjectId, onSelect }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// TOPICS TABLE — with counts from correct format table
+// TOPICS TABLE (with CRUD)
 // ══════════════════════════════════════════════════════════════════════════
 function TopicsTable({ subjectId, formatTable, onSelect }) {
-  const [topics, setTopics] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [editId, setEditId] = useState(null);
-  const [newName, setNewName] = useState('');
-  const [newTag, setNewTag] = useState('');
+  const [topics, setTopics] = useState([]); const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false); const [editId, setEditId] = useState(null);
+  const [newName, setNewName] = useState(''); const [newTag, setNewTag] = useState('');
 
-  async function load() {
-    setLoading(true);
+  async function load() { setLoading(true);
     const { data: t } = await supabase.from('topics').select('*').eq('subject_id', subjectId).eq('is_active', true).order('sort_order');
     const { data: q } = await supabase.from(formatTable).select('topic_tag').eq('subject_id', subjectId).eq('is_active', true);
-    const c = {};
-    (q || []).forEach(r => { c[r.topic_tag] = (c[r.topic_tag] || 0) + 1; });
-    setTopics((t || []).map(tp => ({ ...tp, cnt: c[tp.tag] || 0 })));
-    setLoading(false);
+    const c = {}; (q || []).forEach(r => { c[r.topic_tag] = (c[r.topic_tag] || 0) + 1; });
+    setTopics((t || []).map(tp => ({ ...tp, cnt: c[tp.tag] || 0 }))); setLoading(false);
   }
   useEffect(() => { load(); }, [subjectId, formatTable]);
 
-  function slugify(s) { return s.toLowerCase().replace(/[іїєґ]/g, c=>({і:'i',ї:'yi',є:'ye',ґ:'g'}[c]||c)).replace(/[а-яё]/g, c=>{const m='абвгдежзийклмнопрстуфхцчшщъыьэюя';const l='abvgdezhziyklmnoprstufkhtschchshschyyyeyuya'.match(/.{1,2}/g)||[];const i=m.indexOf(c);return i>=0?(l[i]||''):c;}).replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,''); }
-
-  async function addTopic(e) {
-    e.preventDefault();
-    if (!newName.trim()) return;
-    const tag = newTag.trim() || slugify(newName.trim());
-    await supabase.from('topics').insert({ name: newName.trim(), tag, subject_id: subjectId, sort_order: topics.length, is_active: true });
-    setNewName(''); setNewTag(''); setShowAdd(false); load();
-  }
-
-  async function deleteTopic(id) {
-    if (!confirm('Деактивувати тему?')) return;
-    await supabase.from('topics').update({ is_active: false }).eq('id', id);
-    load();
-  }
-
-  async function renameTopic(id, name) {
-    await supabase.from('topics').update({ name, updated_at: new Date().toISOString() }).eq('id', id);
-    setEditId(null); load();
-  }
+  function slug(s) { return s.toLowerCase().replace(/[іїєґ]/g, c => ({ і: 'i', ї: 'yi', є: 'ye', ґ: 'g' }[c] || c)).replace(/[а-яё]/g, c => { const m = 'абвгдежзийклмнопрстуфхцчшщъыьэюя'; const l = 'abvgdezhziyklmnoprstufkhtschchshschyyyeyuya'.match(/.{1,2}/g) || []; const i = m.indexOf(c); return i >= 0 ? (l[i] || '') : c; }).replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
+  async function addTopic(e) { e.preventDefault(); if (!newName.trim()) return; await supabase.from('topics').insert({ name: newName.trim(), tag: newTag.trim() || slug(newName.trim()), subject_id: subjectId, sort_order: topics.length, is_active: true }); setNewName(''); setNewTag(''); setShowAdd(false); load(); }
+  async function renameTopic(id, name) { await supabase.from('topics').update({ name }).eq('id', id); setEditId(null); load(); }
 
   if (loading) return <Spinner />;
-
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <span className="text-sm text-slate-500">Тем: <strong>{topics.length}</strong></span>
-        <Btn onClick={() => setShowAdd(!showAdd)}><Plus size={16} /> Додати тему</Btn>
-      </div>
-
-      {showAdd && (
-        <form onSubmit={addTopic} className="bg-white border border-emerald-200 rounded-xl p-4 flex gap-3 items-end shadow-sm">
-          <div className="flex-1"><label className="block text-sm font-medium text-slate-600 mb-1">Назва теми</label>
-            <input value={newName} onChange={e => { setNewName(e.target.value); if (!newTag) setNewTag(''); }} className="inp w-full" placeholder="Київська Русь" required /></div>
-          <div className="w-48"><label className="block text-sm font-medium text-slate-600 mb-1">Тег (авто)</label>
-            <input value={newTag || slugify(newName)} onChange={e => setNewTag(e.target.value)} className="inp w-full" placeholder="kyivska_rus" /></div>
-          <button type="submit" className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium"><Check size={16} /></button>
-          <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-lg text-sm"><X size={16} /></button>
-        </form>
-      )}
-
-      {!topics.length && !showAdd ? <Empty text="Теми не знайдено. Додайте першу тему." /> : (
-        <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
-          <table className="w-full text-left border-collapse min-w-[600px]">
-            <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-              <tr><th className="px-6 py-4 font-medium">#</th><th className="px-6 py-4 font-medium">Назва теми</th><th className="px-6 py-4 font-medium">Тег</th><th className="px-6 py-4 font-medium">Питань</th><th className="px-6 py-4 font-medium text-right">Дії</th></tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-sm">
-              {topics.map(tp => (
-                <tr key={tp.id} className="hover:bg-slate-50/80 group">
-                  <td className="px-6 py-4 text-slate-400 text-xs">{tp.sort_order}</td>
-                  <td className="px-6 py-4 font-medium text-slate-800 flex items-center gap-3">
-                    <FolderOpen size={18} className="text-slate-400" />
-                    {editId === tp.id ? (
-                      <form onSubmit={e => { e.preventDefault(); renameTopic(tp.id, e.target.elements.n.value); }} className="flex gap-2">
-                        <input name="n" defaultValue={tp.name} className="inp" autoFocus />
-                        <button type="submit" className="text-emerald-600"><Check size={16} /></button>
-                        <button type="button" onClick={() => setEditId(null)} className="text-slate-400"><X size={16} /></button>
-                      </form>
-                    ) : tp.name}
-                  </td>
-                  <td className="px-6 py-4 text-slate-400 text-xs font-mono">{tp.tag}</td>
-                  <td className="px-6 py-4"><span className="bg-slate-100 text-slate-700 py-1 px-3 rounded-full text-xs font-semibold">{tp.cnt}</span></td>
-                  <td className="px-6 py-4 text-right flex justify-end gap-2">
-                    <button onClick={() => onSelect(tp)} className="px-4 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg text-sm font-medium transition-colors">Відкрити</button>
-                    <Abtn icon={<Edit size={16} />} onClick={() => setEditId(tp.id)} />
-                    <Abtn icon={<Trash2 size={16} />} danger onClick={() => deleteTopic(tp.id)} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Тем: <strong>{topics.length}</strong></span><Btn onClick={() => setShowAdd(!showAdd)}><Plus size={16} /> Додати тему</Btn></div>
+      {showAdd && <form onSubmit={addTopic} className="bg-white border border-emerald-200 rounded-xl p-4 flex gap-3 items-end shadow-sm">
+        <div className="flex-1"><label className="block text-sm font-medium text-slate-600 mb-1">Назва</label><input value={newName} onChange={e => setNewName(e.target.value)} className="inp w-full" required /></div>
+        <div className="w-48"><label className="block text-sm font-medium text-slate-600 mb-1">Тег</label><input value={newTag || slug(newName)} onChange={e => setNewTag(e.target.value)} className="inp w-full" /></div>
+        <button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg"><Check size={16} /></button>
+        <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-slate-500"><X size={16} /></button>
+      </form>}
+      {!topics.length && !showAdd ? <Empty text="Додайте першу тему" /> :
+        <Table heads={['#', 'Тема', 'Тег', 'Питань', '']}>
+          {topics.map(tp => (
+            <tr key={tp.id} className="hover:bg-slate-50/80 group">
+              <td className="px-6 py-4 text-slate-400 text-xs">{tp.sort_order}</td>
+              <td className="px-6 py-4 font-medium text-slate-800 flex items-center gap-3"><FolderOpen size={18} className="text-slate-400" />
+                {editId === tp.id ? <form onSubmit={e => { e.preventDefault(); renameTopic(tp.id, e.target.elements.n.value); }} className="flex gap-2"><input name="n" defaultValue={tp.name} className="inp" autoFocus /><button type="submit" className="text-emerald-600"><Check size={16} /></button></form> : tp.name}
+              </td>
+              <td className="px-6 py-4 text-slate-400 text-xs font-mono">{tp.tag}</td>
+              <td className="px-6 py-4"><span className="bg-slate-100 text-slate-700 py-1 px-3 rounded-full text-xs font-semibold">{tp.cnt}</span></td>
+              <td className="px-6 py-4 text-right flex justify-end gap-2">
+                <button onClick={() => onSelect(tp)} className="px-4 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg text-sm font-medium">Відкрити</button>
+                <Abtn icon={<Edit size={16} />} onClick={() => setEditId(tp.id)} />
+                <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from('topics').update({ is_active: false }).eq('id', tp.id); load(); }} />
+              </td>
+            </tr>
+          ))}
+        </Table>}
     </div>
   );
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// EXPRESS / THEMATIC (standard 4-option questions)
+// GENERIC TABLE (questions from any table)
 // ══════════════════════════════════════════════════════════════════════════
-function ExpressView({ sid, tag }) {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [formId, setFormId] = useState(null); // null=hidden, 'new'=add, uuid=edit
-
-  async function load() { setLoading(true); const { data } = await supabase.from('questions').select('*').eq('subject_id', sid).eq('topic_tag', tag).eq('is_active', true).order('updated_at', { ascending: false }).limit(200); setItems(data || []); setLoading(false); }
-  useEffect(() => { load(); }, [sid, tag]);
-
+function GenericTable({ sid, tag, table, textKey, folderId }) {
+  const [items, setItems] = useState([]); const [loading, setLoading] = useState(true);
+  async function load() { setLoading(true);
+    let q = supabase.from(table).select('*').eq('is_active', true).order('updated_at', { ascending: false }).limit(200);
+    if (tag) q = q.eq('topic_tag', tag);
+    if (sid && table !== 'exam_questions') q = q.eq('subject_id', sid);
+    if (folderId) q = q.eq('folder_id', folderId);
+    const { data } = await q; setItems(data || []); setLoading(false);
+  }
+  useEffect(() => { load(); }, [sid, tag, table, folderId]);
   if (loading) return <Spinner />;
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span>
-        <Btn onClick={() => setFormId('new')}><Plus size={16} /> Додати</Btn>
-      </div>
-      {formId && <ExpressForm sid={sid} tag={tag} qid={formId === 'new' ? null : formId} onDone={() => { setFormId(null); load(); }} onCancel={() => setFormId(null)} />}
-      <Table heads={['#','Текст','Відповідь','Складність','']}>
+      <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span></div>
+      <Table heads={['#', 'Зміст', 'Тип', '']}>
         {items.map((q, i) => (
           <tr key={q.id} className="hover:bg-slate-50/80 group">
-            <td className="px-6 py-4 text-slate-400 text-xs text-center">{i+1}</td>
-            <td className="px-6 py-4 font-medium text-slate-800 max-w-md"><div className="line-clamp-2">{q.question_text}</div></td>
-            <td className="px-6 py-4"><span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-xs font-bold">{String.fromCharCode(65+q.correct_index)}</span></td>
-            <td className="px-6 py-4"><DiffBadge d={q.difficulty} /></td>
+            <td className="px-6 py-4 text-slate-400 text-xs text-center">{i + 1}</td>
+            <td className="px-6 py-4 font-medium text-slate-800 max-w-lg"><div className="line-clamp-2">{q[textKey] || JSON.stringify(q.question_data || {}).substring(0, 80)}</div></td>
+            <td className="px-6 py-4 text-xs text-slate-500">{q.format || q.question_type || table.replace('_questions', '')}</td>
             <td className="px-6 py-4 flex justify-end gap-1 opacity-0 group-hover:opacity-100">
-              <Abtn icon={<Edit size={16} />} onClick={() => setFormId(q.id)} />
-              <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if(!confirm('Деактивувати?')) return; await supabase.from('questions').update({is_active:false}).eq('id',q.id); load(); }} />
+              <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from(table).update({ is_active: false }).eq('id', q.id); load(); }} />
             </td>
           </tr>
         ))}
@@ -363,284 +581,28 @@ function ExpressView({ sid, tag }) {
   );
 }
 
-function ExpressForm({ sid, tag, qid, onDone, onCancel }) {
-  const [f, setF] = useState({ question_text:'', options:['','','',''], correct_index:0, explanation:'', difficulty:1, source_year:'', image_url:'' });
-  const [saving, setSaving] = useState(false);
-  useEffect(() => { if(qid) supabase.from('questions').select('*').eq('id',qid).single().then(({data:d}) => { if(d) setF({ question_text:d.question_text||'', options:d.options||['','','',''], correct_index:d.correct_index||0, explanation:d.explanation||'', difficulty:d.difficulty||1, source_year:d.source_year?.toString()||'', image_url:d.image_url||'' }); }); }, [qid]);
-
-  async function submit(e) { e.preventDefault(); setSaving(true);
-    const p = { question_text:f.question_text, options:f.options, correct_index:f.correct_index, explanation:f.explanation, difficulty:f.difficulty, source_year:f.source_year?parseInt(f.source_year):null, image_url:f.image_url||null, subject_id:sid, topic_tag:tag, format:'single_choice', is_active:true, status:'verified', updated_at:new Date().toISOString() };
-    if(qid) await supabase.from('questions').update(p).eq('id',qid); else await supabase.from('questions').insert(p);
-    setSaving(false); onDone();
-  }
-
-  return (
-    <form onSubmit={submit} className="bg-white border border-blue-200 rounded-xl p-6 space-y-4 shadow-sm">
-      <FormHeader title={qid ? 'Редагувати' : 'Нове питання'} onCancel={onCancel} />
-      <Field label="Текст питання"><textarea value={f.question_text} onChange={e=>setF({...f,question_text:e.target.value})} className="inp min-h-[80px]" required /></Field>
-      <div className="grid grid-cols-2 gap-3">
-        {f.options.map((o,i) => (
-          <div key={i} className="flex gap-2">
-            <input value={o} onChange={e=>{const opts=[...f.options];opts[i]=e.target.value;setF({...f,options:opts});}} className="inp flex-1" placeholder={`Варіант ${String.fromCharCode(65+i)}`} required />
-            <CheckBtn active={i===f.correct_index} onClick={()=>setF({...f,correct_index:i})} />
-          </div>
-        ))}
-      </div>
-      <Field label="Пояснення"><textarea value={f.explanation} onChange={e=>setF({...f,explanation:e.target.value})} className="inp" rows={2} /></Field>
-      <ImageField value={f.image_url} onChange={v=>setF({...f,image_url:v})} />
-      <div className="flex gap-4">
-        <DiffSelect value={f.difficulty} onChange={v=>setF({...f,difficulty:v})} />
-        <Field label="Рік"><input value={f.source_year} onChange={e=>setF({...f,source_year:e.target.value})} className="inp w-24" placeholder="2024" /></Field>
-      </div>
-      <FormFooter saving={saving} onCancel={onCancel} />
-    </form>
-  );
-}
-
 // ══════════════════════════════════════════════════════════════════════════
-// BLITZ (true/false)
-// ══════════════════════════════════════════════════════════════════════════
-function BlitzView({ sid, tag }) {
-  const [items, setItems] = useState([]); const [loading, setLoading] = useState(true); const [formId, setFormId] = useState(null);
-  async function load() { setLoading(true); const{data}=await supabase.from('blitz_questions').select('*').eq('subject_id',sid).eq('topic_tag',tag).eq('is_active',true).order('updated_at',{ascending:false}); setItems(data||[]); setLoading(false); }
-  useEffect(()=>{load();},[sid,tag]);
-  if(loading) return <Spinner />;
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span><Btn onClick={()=>setFormId('new')}><Plus size={16}/> Додати</Btn></div>
-      {formId && <BlitzForm sid={sid} tag={tag} qid={formId==='new'?null:formId} onDone={()=>{setFormId(null);load();}} onCancel={()=>setFormId(null)} />}
-      <Table heads={['#','Твердження','Відповідь','']}>
-        {items.map((q,i)=>(
-          <tr key={q.id} className="hover:bg-slate-50/80 group">
-            <td className="px-6 py-4 text-slate-400 text-xs text-center">{i+1}</td>
-            <td className="px-6 py-4 font-medium text-slate-800 max-w-lg"><div className="line-clamp-2">{q.text}</div></td>
-            <td className="px-6 py-4"><span className={`px-3 py-1 rounded-full text-xs font-bold ${q.is_true?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'}`}>{q.is_true?'ТАК':'НІ'}</span></td>
-            <td className="px-6 py-4 flex justify-end gap-1 opacity-0 group-hover:opacity-100">
-              <Abtn icon={<Edit size={16}/>} onClick={()=>setFormId(q.id)} />
-              <Abtn icon={<Trash2 size={16}/>} danger onClick={async()=>{if(!confirm('Деактивувати?'))return;await supabase.from('blitz_questions').update({is_active:false}).eq('id',q.id);load();}} />
-            </td>
-          </tr>
-        ))}
-      </Table>
-      {!items.length && <Empty text="Немає тверджень" />}
-    </div>
-  );
-}
-
-function BlitzForm({ sid, tag, qid, onDone, onCancel }) {
-  const [f, setF] = useState({ text:'', is_true:true, explanation:'', difficulty:1, image_url:'' });
-  const [saving, setSaving] = useState(false);
-  useEffect(()=>{if(qid) supabase.from('blitz_questions').select('*').eq('id',qid).single().then(({data:d})=>{if(d) setF({text:d.text,is_true:d.is_true,explanation:d.explanation||'',difficulty:d.difficulty,image_url:d.image_url||''});});}, [qid]);
-  async function submit(e){e.preventDefault();setSaving(true);
-    const p={text:f.text,is_true:f.is_true,explanation:f.explanation,difficulty:f.difficulty,image_url:f.image_url||null,subject_id:sid,topic_tag:tag,is_active:true,updated_at:new Date().toISOString()};
-    if(qid) await supabase.from('blitz_questions').update(p).eq('id',qid); else await supabase.from('blitz_questions').insert(p);
-    setSaving(false);onDone();}
-  return (
-    <form onSubmit={submit} className="bg-white border border-orange-200 rounded-xl p-6 space-y-4 shadow-sm">
-      <FormHeader title="Бліц: Так/Ні" onCancel={onCancel} />
-      <Field label="Твердження"><textarea value={f.text} onChange={e=>setF({...f,text:e.target.value})} className="inp min-h-[60px]" required /></Field>
-      <div className="flex gap-4 items-center">
-        <span className="text-sm font-medium text-slate-600">Відповідь:</span>
-        <button type="button" onClick={()=>setF({...f,is_true:true})} className={`px-4 py-2 rounded-lg text-sm font-bold ${f.is_true?'bg-emerald-100 text-emerald-700 ring-2 ring-emerald-400':'bg-slate-100 text-slate-500'}`}>ТАК</button>
-        <button type="button" onClick={()=>setF({...f,is_true:false})} className={`px-4 py-2 rounded-lg text-sm font-bold ${!f.is_true?'bg-red-100 text-red-700 ring-2 ring-red-400':'bg-slate-100 text-slate-500'}`}>НІ</button>
-      </div>
-      <Field label="Пояснення"><textarea value={f.explanation} onChange={e=>setF({...f,explanation:e.target.value})} className="inp" rows={2} /></Field>
-      <ImageField value={f.image_url} onChange={v=>setF({...f,image_url:v})} />
-      <FormFooter saving={saving} onCancel={onCancel} color="orange" />
-    </form>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// LOGICAL PAIRS (4↔4 matching)
-// ══════════════════════════════════════════════════════════════════════════
-function PairsView({ sid, tag }) {
-  const [items, setItems] = useState([]); const [loading, setLoading] = useState(true); const [formId, setFormId] = useState(null);
-  async function load() { setLoading(true); const{data}=await supabase.from('logical_pairs_questions').select('*').eq('subject_id',sid).eq('topic_tag',tag).eq('is_active',true).order('updated_at',{ascending:false}); setItems(data||[]); setLoading(false); }
-  useEffect(()=>{load();},[sid,tag]);
-  if(loading) return <Spinner />;
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span><Btn onClick={()=>setFormId('new')}><Plus size={16}/> Додати</Btn></div>
-      {formId && <PairsForm sid={sid} tag={tag} qid={formId==='new'?null:formId} onDone={()=>{setFormId(null);load();}} onCancel={()=>setFormId(null)} />}
-      <div className="space-y-3">
-        {items.map((q,i) => (
-          <div key={q.id} className="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md group">
-            <div className="flex justify-between items-start mb-3">
-              <span className="text-sm font-medium text-slate-500">#{i+1} — {q.instruction}</span>
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100">
-                <Abtn icon={<Edit size={16}/>} onClick={()=>setFormId(q.id)} />
-                <Abtn icon={<Trash2 size={16}/>} danger onClick={async()=>{if(!confirm('Деактивувати?'))return;await supabase.from('logical_pairs_questions').update({is_active:false}).eq('id',q.id);load();}} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">{(q.left_items||[]).map((it,j)=>(<div key={j} className="flex items-center gap-2 text-sm"><span className="w-6 h-6 rounded bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">{it.id}</span><span>{it.text}</span></div>))}</div>
-              <div className="space-y-1">{(q.right_items||[]).map((it,j)=>(<div key={j} className="flex items-center gap-2 text-sm"><span className="w-6 h-6 rounded bg-amber-100 text-amber-700 text-xs font-bold flex items-center justify-center">{it.id}</span><span>{it.text}</span></div>))}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-      {!items.length && <Empty text="Немає пар" />}
-    </div>
-  );
-}
-
-function PairsForm({ sid, tag, qid, onDone, onCancel }) {
-  const RID = ['А','Б','В','Г'];
-  const [f, setF] = useState({ instruction:'Встановіть відповідність', left:['','','',''], right:['','','',''], pairs:{'1':'А','2':'Б','3':'В','4':'Г'}, explanation:'', difficulty:1, image_url:'' });
-  const [saving, setSaving] = useState(false);
-  useEffect(()=>{if(qid) supabase.from('logical_pairs_questions').select('*').eq('id',qid).single().then(({data:d})=>{if(d) setF({instruction:d.instruction,left:(d.left_items||[]).map(i=>i.text),right:(d.right_items||[]).map(i=>i.text),pairs:d.correct_pairs||{'1':'А','2':'Б','3':'В','4':'Г'},explanation:d.explanation||'',difficulty:d.difficulty,image_url:d.image_url||''});});}, [qid]);
-  async function submit(e){e.preventDefault();setSaving(true);
-    const p={instruction:f.instruction,left_items:f.left.map((t,i)=>({id:String(i+1),text:t})),right_items:f.right.map((t,i)=>({id:RID[i],text:t})),correct_pairs:f.pairs,explanation:f.explanation,difficulty:f.difficulty,image_url:f.image_url||null,subject_id:sid,topic_tag:tag,is_active:true,updated_at:new Date().toISOString()};
-    if(qid) await supabase.from('logical_pairs_questions').update(p).eq('id',qid); else await supabase.from('logical_pairs_questions').insert(p);
-    setSaving(false);onDone();}
-  return (
-    <form onSubmit={submit} className="bg-white border border-indigo-200 rounded-xl p-6 space-y-4 shadow-sm">
-      <FormHeader title="Логічні пари" onCancel={onCancel} />
-      <Field label="Інструкція"><input value={f.instruction} onChange={e=>setF({...f,instruction:e.target.value})} className="inp" /></Field>
-      <div className="grid grid-cols-2 gap-6">
-        <div><label className="block text-sm font-medium text-slate-600 mb-2">Ліва колонка</label>{f.left.map((v,i)=>(<div key={i} className="flex items-center gap-2 mb-2"><span className="w-6 h-6 rounded bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center shrink-0">{i+1}</span><input value={v} onChange={e=>{const l=[...f.left];l[i]=e.target.value;setF({...f,left:l});}} className="inp flex-1" required /><select value={f.pairs[String(i+1)]||RID[i]} onChange={e=>{const p={...f.pairs};p[String(i+1)]=e.target.value;setF({...f,pairs:p});}} className="inp w-16">{RID.map(r=><option key={r} value={r}>{r}</option>)}</select></div>))}</div>
-        <div><label className="block text-sm font-medium text-slate-600 mb-2">Права колонка</label>{f.right.map((v,i)=>(<div key={i} className="flex items-center gap-2 mb-2"><span className="w-6 h-6 rounded bg-amber-100 text-amber-700 text-xs font-bold flex items-center justify-center shrink-0">{RID[i]}</span><input value={v} onChange={e=>{const r=[...f.right];r[i]=e.target.value;setF({...f,right:r});}} className="inp flex-1" required /></div>))}</div>
-      </div>
-      <Field label="Пояснення"><textarea value={f.explanation} onChange={e=>setF({...f,explanation:e.target.value})} className="inp" rows={2} /></Field>
-      <ImageField value={f.image_url} onChange={v=>setF({...f,image_url:v})} />
-      <FormFooter saving={saving} onCancel={onCancel} color="indigo" />
-    </form>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// GALLERY (image + 4 options)
-// ══════════════════════════════════════════════════════════════════════════
-function GalleryView({ sid, tag }) {
-  const [items, setItems] = useState([]); const [loading, setLoading] = useState(true); const [formId, setFormId] = useState(null);
-  async function load() { setLoading(true); const{data}=await supabase.from('gallery_questions').select('*').eq('subject_id',sid).eq('topic_tag',tag).eq('is_active',true).order('updated_at',{ascending:false}); setItems(data||[]); setLoading(false); }
-  useEffect(()=>{load();},[sid,tag]);
-  if(loading) return <Spinner />;
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span><Btn onClick={()=>setFormId('new')}><Plus size={16}/> Додати</Btn></div>
-      {formId && <GalleryForm sid={sid} tag={tag} qid={formId==='new'?null:formId} onDone={()=>{setFormId(null);load();}} onCancel={()=>setFormId(null)} />}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {items.map((q,i)=>(<div key={q.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-md group">
-          <div className="h-32 bg-slate-100 flex items-center justify-center text-slate-400">{q.image_url?<img src={q.image_url} className="h-full w-full object-cover" alt=""/>:<span className="text-sm">{q.image_hint||'Зображення'}</span>}</div>
-          <div className="p-4"><div className="text-sm font-medium text-slate-800 mb-2 line-clamp-2">{q.question_text}</div>
-            <div className="flex gap-1 flex-wrap">{(q.options||[]).map((o,j)=>(<span key={j} className={`text-xs px-2 py-0.5 rounded ${j===q.correct_index?'bg-emerald-100 text-emerald-700 font-bold':'bg-slate-100 text-slate-500'}`}>{String.fromCharCode(65+j)}: {o.substring(0,25)}</span>))}</div>
-            <div className="flex justify-end gap-1 mt-2 opacity-0 group-hover:opacity-100"><Abtn icon={<Edit size={14}/>} onClick={()=>setFormId(q.id)} /><Abtn icon={<Trash2 size={14}/>} danger onClick={async()=>{if(!confirm('Деактивувати?'))return;await supabase.from('gallery_questions').update({is_active:false}).eq('id',q.id);load();}} /></div>
-          </div>
-        </div>))}
-      </div>
-      {!items.length && <Empty text="Немає питань" />}
-    </div>
-  );
-}
-
-function GalleryForm({ sid, tag, qid, onDone, onCancel }) {
-  const [f, setF] = useState({ question_text:'', options:['','','',''], correct_index:0, image_url:'', image_category:'architecture', image_hint:'', explanation:'', difficulty:1 });
-  const [saving, setSaving] = useState(false);
-  useEffect(()=>{if(qid) supabase.from('gallery_questions').select('*').eq('id',qid).single().then(({data:d})=>{if(d) setF({question_text:d.question_text,options:d.options||['','','',''],correct_index:d.correct_index,image_url:d.image_url||'',image_category:d.image_category,image_hint:d.image_hint||'',explanation:d.explanation||'',difficulty:d.difficulty});});}, [qid]);
-  async function submit(e){e.preventDefault();setSaving(true);
-    const p={question_text:f.question_text,options:f.options,correct_index:f.correct_index,image_url:f.image_url||null,image_category:f.image_category,image_hint:f.image_hint,explanation:f.explanation,difficulty:f.difficulty,subject_id:sid,topic_tag:tag,is_active:true,updated_at:new Date().toISOString()};
-    if(qid) await supabase.from('gallery_questions').update(p).eq('id',qid); else await supabase.from('gallery_questions').insert(p);
-    setSaving(false);onDone();}
-  return (
-    <form onSubmit={submit} className="bg-white border border-purple-200 rounded-xl p-6 space-y-4 shadow-sm">
-      <FormHeader title="Галерея" onCancel={onCancel} />
-      <ImageField value={f.image_url} onChange={v=>setF({...f,image_url:v})} />
-      <Field label="Текст питання"><textarea value={f.question_text} onChange={e=>setF({...f,question_text:e.target.value})} className="inp min-h-[60px]" required /></Field>
-      <div className="grid grid-cols-2 gap-3">{f.options.map((o,i)=>(<div key={i} className="flex gap-2"><input value={o} onChange={e=>{const opts=[...f.options];opts[i]=e.target.value;setF({...f,options:opts});}} className="inp flex-1" placeholder={`Варіант ${String.fromCharCode(65+i)}`} required /><CheckBtn active={i===f.correct_index} onClick={()=>setF({...f,correct_index:i})} /></div>))}</div>
-      <Field label="Пояснення"><textarea value={f.explanation} onChange={e=>setF({...f,explanation:e.target.value})} className="inp" rows={2} /></Field>
-      <FormFooter saving={saving} onCancel={onCancel} color="purple" />
-    </form>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// SEVENS (3 of 7)
-// ══════════════════════════════════════════════════════════════════════════
-function SevensView({ sid, tag }) {
-  const [items, setItems] = useState([]); const [loading, setLoading] = useState(true); const [formId, setFormId] = useState(null);
-  async function load() { setLoading(true); const{data}=await supabase.from('seven_questions').select('*').eq('subject_id',sid).eq('topic_tag',tag).eq('is_active',true).order('updated_at',{ascending:false}); setItems(data||[]); setLoading(false); }
-  useEffect(()=>{load();},[sid,tag]);
-  if(loading) return <Spinner />;
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span><Btn onClick={()=>setFormId('new')}><Plus size={16}/> Додати</Btn></div>
-      {formId && <SevensForm sid={sid} tag={tag} qid={formId==='new'?null:formId} onDone={()=>{setFormId(null);load();}} onCancel={()=>setFormId(null)} />}
-      <Table heads={['#','Питання','Варіанти','']}>
-        {items.map((q,i)=>(<tr key={q.id} className="hover:bg-slate-50/80 group">
-          <td className="px-6 py-4 text-slate-400 text-xs text-center">{i+1}</td>
-          <td className="px-6 py-4 font-medium text-slate-800 max-w-sm"><div className="line-clamp-2">{q.text}</div></td>
-          <td className="px-6 py-4"><div className="flex flex-wrap gap-1">{(q.options||[]).map((o,j)=>(<span key={j} className={`text-xs px-2 py-0.5 rounded ${(q.correct_answers||[]).includes(j)?'bg-emerald-100 text-emerald-700 font-bold':'bg-slate-100 text-slate-500'}`}>{o.substring(0,20)}</span>))}</div></td>
-          <td className="px-6 py-4 flex justify-end gap-1 opacity-0 group-hover:opacity-100"><Abtn icon={<Edit size={16}/>} onClick={()=>setFormId(q.id)} /><Abtn icon={<Trash2 size={16}/>} danger onClick={async()=>{if(!confirm('Деактивувати?'))return;await supabase.from('seven_questions').update({is_active:false}).eq('id',q.id);load();}} /></td>
-        </tr>))}
-      </Table>
-      {!items.length && <Empty text="Немає питань" />}
-    </div>
-  );
-}
-
-function SevensForm({ sid, tag, qid, onDone, onCancel }) {
-  const [f, setF] = useState({ text:'', options:['','','','','','',''], correct_answers:[0,1,2], explanation:'', difficulty:1, image_url:'' });
-  const [saving, setSaving] = useState(false);
-  useEffect(()=>{if(qid) supabase.from('seven_questions').select('*').eq('id',qid).single().then(({data:d})=>{if(d) setF({text:d.text,options:d.options||['','','','','','',''],correct_answers:d.correct_answers||[0,1,2],explanation:d.explanation||'',difficulty:d.difficulty,image_url:d.image_url||''});});}, [qid]);
-  function toggle(idx){const ca=[...f.correct_answers];if(ca.includes(idx)){if(ca.length>1)setF({...f,correct_answers:ca.filter(i=>i!==idx)});}else{if(ca.length<3)setF({...f,correct_answers:[...ca,idx].sort()});}}
-  async function submit(e){e.preventDefault();if(f.correct_answers.length!==3){alert('Оберіть рівно 3 правильні');return;}setSaving(true);
-    const p={text:f.text,options:f.options,correct_answers:f.correct_answers,explanation:f.explanation,difficulty:f.difficulty,image_url:f.image_url||null,subject_id:sid,topic_tag:tag,is_active:true,updated_at:new Date().toISOString()};
-    if(qid) await supabase.from('seven_questions').update(p).eq('id',qid); else await supabase.from('seven_questions').insert(p);
-    setSaving(false);onDone();}
-  return (
-    <form onSubmit={submit} className="bg-white border border-teal-200 rounded-xl p-6 space-y-4 shadow-sm">
-      <FormHeader title="Сімки: 3 з 7" onCancel={onCancel} />
-      <Field label="Текст питання"><textarea value={f.text} onChange={e=>setF({...f,text:e.target.value})} className="inp min-h-[60px]" required /></Field>
-      <div><label className="block text-sm font-medium text-slate-600 mb-2">7 варіантів (позначте 3 правильні)</label>
-        {f.options.map((o,i)=>(<div key={i} className="flex items-center gap-2 mb-2"><span className="text-xs text-slate-400 w-4">{i+1}.</span><input value={o} onChange={e=>{const opts=[...f.options];opts[i]=e.target.value;setF({...f,options:opts});}} className="inp flex-1" required /><CheckBtn active={f.correct_answers.includes(i)} onClick={()=>toggle(i)} /></div>))}
-        <div className="text-xs text-slate-500">Обрано: {f.correct_answers.length}/3</div>
-      </div>
-      <Field label="Пояснення"><textarea value={f.explanation} onChange={e=>setF({...f,explanation:e.target.value})} className="inp" rows={2} /></Field>
-      <ImageField value={f.image_url} onChange={v=>setF({...f,image_url:v})} />
-      <FormFooter saving={saving} onCancel={onCancel} color="teal" />
-    </form>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// EXAM MAX — custom folders with mixed question types
+// EXAM FOLDERS
 // ══════════════════════════════════════════════════════════════════════════
 function ExamFoldersView({ sid, onSelect }) {
-  const [folders, setFolders] = useState([]); const [loading, setLoading] = useState(true);
-  const [newName, setNewName] = useState('');
-  async function load() { setLoading(true); const{data}=await supabase.from('exam_folders').select('*').eq('subject_id',sid).eq('is_active',true).order('sort_order');
-    // get question counts
-    const{data:qd}=await supabase.from('exam_questions').select('folder_id').eq('subject_id',sid).eq('is_active',true);
-    const c={};(qd||[]).forEach(r=>{c[r.folder_id]=(c[r.folder_id]||0)+1;});
-    setFolders((data||[]).map(f=>({...f,cnt:c[f.id]||0}))); setLoading(false);
+  const [folders, setFolders] = useState([]); const [loading, setLoading] = useState(true); const [newName, setNewName] = useState('');
+  async function load() { setLoading(true);
+    const { data } = await supabase.from('exam_folders').select('*').eq('subject_id', sid).eq('is_active', true).order('sort_order');
+    const { data: qd } = await supabase.from('exam_questions').select('folder_id').eq('subject_id', sid).eq('is_active', true);
+    const c = {}; (qd || []).forEach(r => { c[r.folder_id] = (c[r.folder_id] || 0) + 1; });
+    setFolders((data || []).map(f => ({ ...f, cnt: c[f.id] || 0 }))); setLoading(false);
   }
-  useEffect(()=>{load();},[sid]);
-
-  async function addFolder(e){e.preventDefault();if(!newName.trim())return;
-    await supabase.from('exam_folders').insert({name:newName.trim(),subject_id:sid,sort_order:folders.length});
-    setNewName('');load();}
-  async function delFolder(id){if(!confirm('Видалити папку і всі питання?'))return;
-    await supabase.from('exam_questions').delete().eq('folder_id',id);
-    await supabase.from('exam_folders').delete().eq('id',id);load();}
-
-  if(loading) return <Spinner />;
+  useEffect(() => { load(); }, [sid]);
+  async function add(e) { e.preventDefault(); if (!newName.trim()) return; await supabase.from('exam_folders').insert({ name: newName.trim(), subject_id: sid, sort_order: folders.length }); setNewName(''); load(); }
+  if (loading) return <Spinner />;
   return (
     <div className="space-y-4">
-      <form onSubmit={addFolder} className="flex gap-3">
-        <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Назва нової папки..." className="inp flex-1" />
-        <Btn type="submit"><Plus size={16}/> Створити папку</Btn>
-      </form>
+      <form onSubmit={add} className="flex gap-3"><input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Назва нової папки..." className="inp flex-1" /><Btn type="submit"><Plus size={16} /> Створити</Btn></form>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {folders.map(f=>(
-          <div key={f.id} className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-amber-400 hover:shadow-md cursor-pointer transition-all group" onClick={()=>onSelect(f)}>
-            <div className="flex items-start justify-between mb-3">
-              <div className="p-3 bg-amber-50 text-amber-600 rounded-xl group-hover:bg-amber-500 group-hover:text-white"><FolderOpen size={24}/></div>
-              <div className="flex gap-1">
-                <Abtn icon={<Trash2 size={14}/>} danger onClick={e=>{e.stopPropagation();delFolder(f.id);}} />
-                <ChevronRight className="text-slate-300 group-hover:text-amber-500" />
-              </div>
+        {folders.map(f => (
+          <div key={f.id} className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-amber-400 hover:shadow-md cursor-pointer group" onClick={() => onSelect(f)}>
+            <div className="flex items-start justify-between mb-3"><div className="p-3 bg-amber-50 text-amber-600 rounded-xl group-hover:bg-amber-500 group-hover:text-white"><FolderOpen size={24} /></div>
+              <Abtn icon={<Trash2 size={14} />} danger onClick={async e => { e.stopPropagation(); if (!confirm('Видалити папку?')) return; await supabase.from('exam_questions').delete().eq('folder_id', f.id); await supabase.from('exam_folders').delete().eq('id', f.id); load(); }} />
             </div>
             <h3 className="font-semibold text-slate-800 text-lg mb-1">{f.name}</h3>
             <div className="text-sm text-slate-500">Питань: <strong>{f.cnt}</strong></div>
@@ -652,87 +614,13 @@ function ExamFoldersView({ sid, onSelect }) {
   );
 }
 
-function ExamQuestionsView({ sid, folder }) {
-  const [items, setItems] = useState([]); const [loading, setLoading] = useState(true);
-  const [addType, setAddType] = useState(null); // null | 'single_choice' | 'blitz' | 'pairs' | 'gallery' | 'sevens'
-
-  async function load() { setLoading(true); const{data}=await supabase.from('exam_questions').select('*').eq('folder_id',folder.id).eq('is_active',true).order('sort_order'); setItems(data||[]); setLoading(false); }
-  useEffect(()=>{load();},[folder.id]);
-
-  async function addQuestion(type, questionData) {
-    await supabase.from('exam_questions').insert({ folder_id:folder.id, subject_id:sid, question_type:type, question_data:questionData, sort_order:items.length, is_active:true });
-    setAddType(null); load();
-  }
-
-  if(loading) return <Spinner />;
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <span className="text-sm text-slate-500">Папка: <strong>{folder.name}</strong> — {items.length} питань</span>
-        <div className="flex gap-2">
-          {[['single_choice','Тест'],['blitz','Бліц'],['pairs','Пари'],['gallery','Галерея'],['sevens','Сімка']].map(([t,l])=>(
-            <button key={t} onClick={()=>setAddType(t)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${addType===t?'bg-amber-100 text-amber-700':'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>+ {l}</button>
-          ))}
-        </div>
-      </div>
-
-      {addType === 'single_choice' && <ExamSingleForm onSave={d=>addQuestion('single_choice',d)} onCancel={()=>setAddType(null)} />}
-      {addType === 'blitz' && <ExamBlitzForm onSave={d=>addQuestion('blitz',d)} onCancel={()=>setAddType(null)} />}
-      {addType === 'pairs' && <ExamPairsForm onSave={d=>addQuestion('pairs',d)} onCancel={()=>setAddType(null)} />}
-      {addType === 'gallery' && <ExamGalleryForm onSave={d=>addQuestion('gallery',d)} onCancel={()=>setAddType(null)} />}
-      {addType === 'sevens' && <ExamSevensForm onSave={d=>addQuestion('sevens',d)} onCancel={()=>setAddType(null)} />}
-
-      <div className="space-y-2">
-        {items.map((q,i) => {
-          const d = q.question_data || {};
-          const typeLabels = {single_choice:'Тест',blitz:'Бліц',pairs:'Пари',gallery:'Галерея',sevens:'Сімка'};
-          const typeColors = {single_choice:'blue',blitz:'orange',pairs:'indigo',gallery:'purple',sevens:'teal'};
-          const c = typeColors[q.question_type]||'slate';
-          return (
-            <div key={q.id} className="bg-white border border-slate-200 rounded-xl p-4 flex items-start gap-4 hover:shadow-sm group">
-              <span className="text-xs text-slate-400 mt-1">{i+1}</span>
-              <span className={`px-2 py-0.5 rounded text-xs font-bold bg-${c}-100 text-${c}-700 shrink-0`}>{typeLabels[q.question_type]||q.question_type}</span>
-              <div className="flex-1 text-sm text-slate-700 line-clamp-2">{d.text || d.question_text || d.instruction || '...'}</div>
-              <Abtn icon={<Trash2 size={14}/>} danger onClick={async()=>{await supabase.from('exam_questions').update({is_active:false}).eq('id',q.id);load();}} />
-            </div>
-          );
-        })}
-      </div>
-      {!items.length && <Empty text="Додайте питання будь-якого типу" />}
-    </div>
-  );
-}
-
-// Mini forms for exam questions (simplified, save to question_data JSONB)
-function ExamSingleForm({onSave,onCancel}){const[f,setF]=useState({question_text:'',options:['','','',''],correct_index:0,explanation:'',image_url:''});
-  return <form onSubmit={e=>{e.preventDefault();onSave(f);}} className="bg-white border border-blue-200 rounded-xl p-5 space-y-3"><FormHeader title="Тест (4 варіанти)" onCancel={onCancel}/><Field label="Питання"><textarea value={f.question_text} onChange={e=>setF({...f,question_text:e.target.value})} className="inp min-h-[60px]" required/></Field><div className="grid grid-cols-2 gap-2">{f.options.map((o,i)=>(<div key={i} className="flex gap-1"><input value={o} onChange={e=>{const opts=[...f.options];opts[i]=e.target.value;setF({...f,options:opts});}} className="inp flex-1 text-xs" placeholder={String.fromCharCode(65+i)} required/><CheckBtn active={i===f.correct_index} onClick={()=>setF({...f,correct_index:i})}/></div>))}</div><Field label="Пояснення"><textarea value={f.explanation} onChange={e=>setF({...f,explanation:e.target.value})} className="inp" rows={1}/></Field><ImageField value={f.image_url} onChange={v=>setF({...f,image_url:v})}/><FormFooter saving={false} onCancel={onCancel}/></form>;}
-
-function ExamBlitzForm({onSave,onCancel}){const[f,setF]=useState({text:'',is_true:true,explanation:'',image_url:''});
-  return <form onSubmit={e=>{e.preventDefault();onSave(f);}} className="bg-white border border-orange-200 rounded-xl p-5 space-y-3"><FormHeader title="Бліц" onCancel={onCancel}/><Field label="Твердження"><textarea value={f.text} onChange={e=>setF({...f,text:e.target.value})} className="inp" required/></Field><div className="flex gap-3"><button type="button" onClick={()=>setF({...f,is_true:true})} className={`px-3 py-1 rounded text-sm font-bold ${f.is_true?'bg-emerald-100 text-emerald-700 ring-2 ring-emerald-400':'bg-slate-100 text-slate-500'}`}>ТАК</button><button type="button" onClick={()=>setF({...f,is_true:false})} className={`px-3 py-1 rounded text-sm font-bold ${!f.is_true?'bg-red-100 text-red-700 ring-2 ring-red-400':'bg-slate-100 text-slate-500'}`}>НІ</button></div><Field label="Пояснення"><textarea value={f.explanation} onChange={e=>setF({...f,explanation:e.target.value})} className="inp" rows={1}/></Field><ImageField value={f.image_url} onChange={v=>setF({...f,image_url:v})}/><FormFooter saving={false} onCancel={onCancel} color="orange"/></form>;}
-
-function ExamPairsForm({onSave,onCancel}){const R=['А','Б','В','Г'];const[f,setF]=useState({instruction:'Встановіть відповідність',left:['','','',''],right:['','','',''],pairs:{'1':'А','2':'Б','3':'В','4':'Г'},explanation:'',image_url:''});
-  return <form onSubmit={e=>{e.preventDefault();onSave({...f,left_items:f.left.map((t,i)=>({id:String(i+1),text:t})),right_items:f.right.map((t,i)=>({id:R[i],text:t})),correct_pairs:f.pairs});}} className="bg-white border border-indigo-200 rounded-xl p-5 space-y-3"><FormHeader title="Пари" onCancel={onCancel}/><Field label="Інструкція"><input value={f.instruction} onChange={e=>setF({...f,instruction:e.target.value})} className="inp"/></Field><div className="grid grid-cols-2 gap-4"><div>{f.left.map((v,i)=>(<div key={i} className="flex gap-1 mb-1"><span className="w-5 h-5 rounded bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">{i+1}</span><input value={v} onChange={e=>{const l=[...f.left];l[i]=e.target.value;setF({...f,left:l});}} className="inp flex-1 text-xs" required/><select value={f.pairs[String(i+1)]} onChange={e=>{const p={...f.pairs};p[String(i+1)]=e.target.value;setF({...f,pairs:p});}} className="inp w-12 text-xs">{R.map(r=><option key={r}>{r}</option>)}</select></div>))}</div><div>{f.right.map((v,i)=>(<div key={i} className="flex gap-1 mb-1"><span className="w-5 h-5 rounded bg-amber-100 text-amber-700 text-xs font-bold flex items-center justify-center">{R[i]}</span><input value={v} onChange={e=>{const r=[...f.right];r[i]=e.target.value;setF({...f,right:r});}} className="inp flex-1 text-xs" required/></div>))}</div></div><Field label="Пояснення"><textarea value={f.explanation} onChange={e=>setF({...f,explanation:e.target.value})} className="inp" rows={1}/></Field><ImageField value={f.image_url} onChange={v=>setF({...f,image_url:v})}/><FormFooter saving={false} onCancel={onCancel} color="indigo"/></form>;}
-
-function ExamGalleryForm({onSave,onCancel}){const[f,setF]=useState({question_text:'',options:['','','',''],correct_index:0,image_url:'',explanation:''});
-  return <form onSubmit={e=>{e.preventDefault();onSave(f);}} className="bg-white border border-purple-200 rounded-xl p-5 space-y-3"><FormHeader title="Галерея" onCancel={onCancel}/><ImageField value={f.image_url} onChange={v=>setF({...f,image_url:v})}/><Field label="Питання"><textarea value={f.question_text} onChange={e=>setF({...f,question_text:e.target.value})} className="inp" required/></Field><div className="grid grid-cols-2 gap-2">{f.options.map((o,i)=>(<div key={i} className="flex gap-1"><input value={o} onChange={e=>{const opts=[...f.options];opts[i]=e.target.value;setF({...f,options:opts});}} className="inp flex-1 text-xs" required/><CheckBtn active={i===f.correct_index} onClick={()=>setF({...f,correct_index:i})}/></div>))}</div><Field label="Пояснення"><textarea value={f.explanation} onChange={e=>setF({...f,explanation:e.target.value})} className="inp" rows={1}/></Field><FormFooter saving={false} onCancel={onCancel} color="purple"/></form>;}
-
-function ExamSevensForm({onSave,onCancel}){const[f,setF]=useState({text:'',options:['','','','','','',''],correct_answers:[0,1,2],explanation:'',image_url:''});
-  function tog(i){const ca=[...f.correct_answers];if(ca.includes(i)){if(ca.length>1)setF({...f,correct_answers:ca.filter(x=>x!==i)});}else{if(ca.length<3)setF({...f,correct_answers:[...ca,i].sort()});}}
-  return <form onSubmit={e=>{e.preventDefault();if(f.correct_answers.length!==3){alert('Оберіть 3');return;}onSave(f);}} className="bg-white border border-teal-200 rounded-xl p-5 space-y-3"><FormHeader title="Сімка" onCancel={onCancel}/><Field label="Питання"><textarea value={f.text} onChange={e=>setF({...f,text:e.target.value})} className="inp" required/></Field><div>{f.options.map((o,i)=>(<div key={i} className="flex gap-1 mb-1"><span className="text-xs text-slate-400 w-4">{i+1}.</span><input value={o} onChange={e=>{const opts=[...f.options];opts[i]=e.target.value;setF({...f,options:opts});}} className="inp flex-1 text-xs" required/><CheckBtn active={f.correct_answers.includes(i)} onClick={()=>tog(i)}/></div>))}<div className="text-xs text-slate-500">Обрано: {f.correct_answers.length}/3</div></div><Field label="Пояснення"><textarea value={f.explanation} onChange={e=>setF({...f,explanation:e.target.value})} className="inp" rows={1}/></Field><ImageField value={f.image_url} onChange={v=>setF({...f,image_url:v})}/><FormFooter saving={false} onCancel={onCancel} color="teal"/></form>;}
-
 // ══════════════════════════════════════════════════════════════════════════
-// SHARED UI PRIMITIVES
+// SHARED UI
 // ══════════════════════════════════════════════════════════════════════════
-function SidebarItem({icon,label,active,onClick}){return <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${active?'bg-blue-50 text-blue-700 font-medium':'text-slate-600 hover:bg-slate-50'}`}><span className={active?'text-blue-600':'text-slate-400'}>{icon}</span>{label}</button>;}
-function StatCard({icon,label,value,color,isLive}){const cm={blue:'bg-blue-50 text-blue-600',emerald:'bg-emerald-50 text-emerald-600',indigo:'bg-indigo-50 text-indigo-600'};return <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-3"><div className="flex justify-between items-start"><div className={`p-2.5 rounded-xl ${cm[color]}`}>{React.cloneElement(icon,{size:20})}</div>{isLive&&<span className="flex h-2.5 w-2.5 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"/><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"/></span>}</div><div><div className="text-sm text-slate-500 font-medium mb-1">{label}</div><div className="text-2xl font-bold text-slate-800">{value}</div></div></div>;}
-function Spinner(){return <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"/></div>;}
-function Empty({text}){return <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-slate-200">{text}</div>;}
-function Btn({children,onClick,type='button'}){return <button type={type} onClick={onClick} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm">{children}</button>;}
-function Abtn({icon,danger,onClick}){return <button onClick={onClick} className={`p-2 rounded-lg transition-colors ${danger?'text-slate-400 hover:text-red-600 hover:bg-red-50':'text-slate-400 hover:text-blue-600 hover:bg-blue-50'}`}>{icon}</button>;}
-function CheckBtn({active,onClick}){return <button type="button" onClick={onClick} className={`p-2 rounded-lg transition-colors ${active?'bg-emerald-100 text-emerald-700':'bg-slate-50 text-slate-400 hover:bg-emerald-50'}`}><Check size={16}/></button>;}
-function DiffBadge({d}){const c=d===1?'bg-green-50 text-green-700 border-green-200':d===2?'bg-yellow-50 text-yellow-700 border-yellow-200':'bg-red-50 text-red-700 border-red-200';return <span className={`px-3 py-1 rounded-full text-xs font-medium border ${c}`}>{d===1?'Легка':d===2?'Середня':'Складна'}</span>;}
-function DiffSelect({value,onChange}){return <div><label className="block text-sm font-medium text-slate-600 mb-1">Складність</label><select value={value} onChange={e=>onChange(parseInt(e.target.value))} className="inp"><option value={1}>Легка</option><option value={2}>Середня</option><option value={3}>Складна</option></select></div>;}
-function Field({label,children}){return <div><label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>{children}</div>;}
-function FormHeader({title,onCancel}){return <div className="flex items-center justify-between"><h3 className="font-semibold text-slate-800">{title}</h3><button type="button" onClick={onCancel} className="p-1 text-slate-400 hover:text-slate-600"><X size={20}/></button></div>;}
-function FormFooter({saving,onCancel,color='blue'}){return <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={onCancel} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">Скасувати</button><button type="submit" disabled={saving} className={`flex items-center gap-2 px-5 py-2 bg-${color}-600 hover:bg-${color}-700 text-white rounded-lg text-sm font-medium disabled:opacity-50`}><Save size={16}/>{saving?'Збереження...':'Зберегти'}</button></div>;}
-function Table({heads,children}){return <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm"><table className="w-full text-left border-collapse"><thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider"><tr>{heads.map((h,i)=><th key={i} className={`px-6 py-4 font-medium ${i===heads.length-1?'text-right':''}`}>{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 text-sm">{children}</tbody></table></div>;}
+function SidebarItem({ icon, label, active, onClick }) { return <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${active ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}><span className={active ? 'text-blue-600' : 'text-slate-400'}>{icon}</span>{label}</button>; }
+function StatCard({ icon, label, value, color, isLive }) { const cm = { blue: 'bg-blue-50 text-blue-600', emerald: 'bg-emerald-50 text-emerald-600', indigo: 'bg-indigo-50 text-indigo-600' }; return <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-3"><div className="flex justify-between items-start"><div className={`p-2.5 rounded-xl ${cm[color]}`}>{React.cloneElement(icon, { size: 20 })}</div>{isLive && <span className="flex h-2.5 w-2.5 relative"><span className="animate-ping absolute h-full w-full rounded-full bg-emerald-400 opacity-75" /><span className="relative rounded-full h-2.5 w-2.5 bg-emerald-500" /></span>}</div><div><div className="text-sm text-slate-500 font-medium mb-1">{label}</div><div className="text-2xl font-bold text-slate-800">{value}</div></div></div>; }
+function Spinner() { return <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>; }
+function Empty({ text }) { return <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-slate-200">{text}</div>; }
+function Btn({ children, onClick, type = 'button' }) { return <button type={type} onClick={onClick} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-sm">{children}</button>; }
+function Abtn({ icon, danger, onClick }) { return <button onClick={onClick} className={`p-2 rounded-lg transition-colors ${danger ? 'text-slate-400 hover:text-red-600 hover:bg-red-50' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'}`}>{icon}</button>; }
+function Table({ heads, children }) { return <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm"><table className="w-full text-left border-collapse"><thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider"><tr>{heads.map((h, i) => <th key={i} className={`px-6 py-4 font-medium ${i === heads.length - 1 ? 'text-right' : ''}`}>{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 text-sm">{children}</tbody></table></div>; }
