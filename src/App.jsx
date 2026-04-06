@@ -209,7 +209,7 @@ function DashboardView() {
   useEffect(() => {
     Promise.all([
       supabase.from('questions').select('*', { count: 'exact', head: true }).eq('is_active', true),
-      supabase.from('topics').select('*', { count: 'exact', head: true }),
+      supabase.from('topics').select('*', { count: 'exact', head: true }).eq('is_active', true),
       supabase.from('blitz_questions').select('*', { count: 'exact', head: true }).eq('is_active', true),
       supabase.from('logical_pairs_questions').select('*', { count: 'exact', head: true }).eq('is_active', true),
       supabase.from('gallery_questions').select('*', { count: 'exact', head: true }).eq('is_active', true),
