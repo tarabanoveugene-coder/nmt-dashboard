@@ -6,7 +6,7 @@ import {
   LayoutDashboard, BookOpen, Edit, Trash2, Plus, Activity, Landmark,
   BookText, Calculator, Globe, Microscope, Earth, FlaskConical, Zap,
   ChevronRight, ArrowLeft, Layers, FolderOpen, FileQuestion, LogOut,
-  Save, X, Check, Link, Upload, Download, Trophy, ShieldAlert, ShieldCheck, Eye,
+  Save, X, Check, Link, Upload, Download, Trophy, ShieldAlert, ShieldCheck, Eye, ArrowRightLeft, Loader2,
   Key, RefreshCw, Copy, Lock, Headset, Users, UserPlus, Radio,
   CreditCard, TrendingUp, Calendar, Settings, MessageSquare,
   Inbox, Bug, Lightbulb, MoreHorizontal, Ban, Filter,
@@ -620,6 +620,7 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
             <td className="px-6 py-4 text-xs text-slate-500">{q.format || q.question_type || table.replace('_questions', '')}</td>
             {canEdit && <td className="px-6 py-4 flex justify-end gap-1 opacity-0 group-hover:opacity-100">
               {FormComponent && <Abtn icon={<Edit size={16} />} onClick={() => { setFormId(q.id); setShowImport(false); }} />}
+              <MoveButton question={q} fromTable={table} sid={sid} onMoved={load} />
               <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from(table).update({ is_active: false }).eq('id', q.id); load(); }} />
             </td>}
           </tr>
@@ -660,6 +661,53 @@ function ExamFoldersView({ sid, onSelect }) {
         ))}
       </div>
       {!folders.length && <Empty text="Створіть першу папку" />}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// MOVE QUESTION BETWEEN FORMATS
+// ══════════════════════════════════════════════════════════════════════════
+const MOVE_TARGETS = [
+  { table: 'questions', label: 'Тест (4 варіанти)', fields: q => ({ question_text: q.question_text || q.text || q.instruction || '', options: q.options || ['', '', '', ''], correct_index: q.correct_index ?? 0, explanation: q.explanation || '', difficulty: q.difficulty || 1, format: 'single_choice', status: 'verified' }) },
+  { table: 'blitz_questions', label: 'Бліц (Так/Ні)', fields: q => ({ text: q.text || q.question_text || q.instruction || '', is_true: q.is_true ?? true, explanation: q.explanation || '', difficulty: q.difficulty || 1 }) },
+  { table: 'logical_pairs_questions', label: 'Логічні пари', fields: q => ({ instruction: q.instruction || q.question_text || q.text || '', left_items: q.left_items || [{ id: '1', text: '' }, { id: '2', text: '' }, { id: '3', text: '' }, { id: '4', text: '' }], right_items: q.right_items || [{ id: 'А', text: '' }, { id: 'Б', text: '' }, { id: 'В', text: '' }, { id: 'Г', text: '' }], correct_pairs: q.correct_pairs || { '1': 'А', '2': 'Б', '3': 'В', '4': 'Г' }, explanation: q.explanation || '', difficulty: q.difficulty || 1 }) },
+  { table: 'gallery_questions', label: 'Галерея', fields: q => ({ question_text: q.question_text || q.text || q.instruction || '', options: q.options || ['', '', '', ''], correct_index: q.correct_index ?? 0, explanation: q.explanation || '', image_url: q.image_url || null, image_hint: q.image_hint || '', image_category: 'architecture', difficulty: q.difficulty || 1 }) },
+  { table: 'seven_questions', label: 'Сімки (3 з 7)', fields: q => ({ text: q.text || q.question_text || q.instruction || '', options: q.options || ['', '', '', '', '', '', ''], correct_answers: q.correct_answers || [0, 1, 2], explanation: q.explanation || '', difficulty: q.difficulty || 1 }) },
+];
+
+function MoveButton({ question, fromTable, sid, onMoved }) {
+  const [open, setOpen] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const targets = MOVE_TARGETS.filter(t => t.table !== fromTable);
+
+  async function moveTo(target) {
+    if (!confirm(`Перемістити питання в "${target.label}"?`)) return;
+    setMoving(true);
+    const fields = target.fields(question);
+    const payload = { ...fields, subject_id: sid, topic_tag: question.topic_tag, image_url: question.image_url || null, is_active: true, updated_at: new Date().toISOString() };
+    const { error } = await supabase.from(target.table).insert(payload);
+    if (error) { alert('Помилка: ' + error.message); setMoving(false); return; }
+    await supabase.from(fromTable).update({ is_active: false }).eq('id', question.id);
+    setMoving(false); setOpen(false); onMoved();
+  }
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)} disabled={moving} className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Перемістити в інший формат">
+        {moving ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={16} />}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 py-1 min-w-[200px]">
+          <div className="px-3 py-2 text-xs text-slate-400 font-medium border-b border-slate-100">Перемістити в:</div>
+          {targets.map(t => (
+            <button key={t.table} onClick={() => moveTo(t)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors">
+              {t.label}
+            </button>
+          ))}
+          <button onClick={() => setOpen(false)} className="w-full text-left px-3 py-2 text-sm text-slate-400 hover:bg-slate-50 border-t border-slate-100">Скасувати</button>
+        </div>
+      )}
     </div>
   );
 }
