@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, createContext, useContext } from 'react';
 import { supabase } from './lib/supabase';
+import ExcelImport, { downloadTemplate, TEMPLATES } from './ExcelImport';
 import {
   LayoutDashboard, BookOpen, Edit, Trash2, Plus, Activity, Landmark,
   BookText, Calculator, Globe, Microscope, Earth, FlaskConical, Zap,
@@ -568,6 +569,8 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
 function GenericTable({ sid, tag, table, textKey, folderId }) {
   const canEdit = useCanEdit();
   const [items, setItems] = useState([]); const [loading, setLoading] = useState(true);
+  const [showImport, setShowImport] = useState(false);
+  const hasTemplate = !!TEMPLATES[table];
   async function load() { setLoading(true);
     let q = supabase.from(table).select('*').eq('is_active', true).order('updated_at', { ascending: false }).limit(200);
     if (tag) q = q.eq('topic_tag', tag);
@@ -579,7 +582,16 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
   if (loading) return <Spinner />;
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span></div>
+      <div className="flex justify-between items-center">
+        <span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span>
+        {canEdit && hasTemplate && (
+          <div className="flex gap-2">
+            <button onClick={() => downloadTemplate(table)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors"><Download size={14} /> Шаблон .xlsx</button>
+            <button onClick={() => setShowImport(!showImport)} className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-sm font-medium transition-colors"><Upload size={14} /> Імпорт з Excel</button>
+          </div>
+        )}
+      </div>
+      {showImport && canEdit && <ExcelImport formatTable={table} subjectId={sid} topicTag={tag} onImported={() => { setShowImport(false); load(); }} />}
       <Table heads={['#', 'Зміст', 'Тип', canEdit ? '' : null].filter(Boolean)}>
         {items.map((q, i) => (
           <tr key={q.id} className="hover:bg-slate-50/80 group">
