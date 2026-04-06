@@ -692,23 +692,27 @@ function MoveButton({ question, fromTable, sid, onMoved }) {
     setMoving(false); setOpen(false); onMoved();
   }
 
+  const btnRef = useRef();
+
   return (
-    <div className="relative">
-      <button onClick={() => setOpen(!open)} disabled={moving} className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Перемістити в інший формат">
+    <>
+      <button ref={btnRef} onClick={() => setOpen(!open)} disabled={moving} className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Перемістити в інший формат">
         {moving ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={16} />}
       </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 py-1 min-w-[200px]">
+      {open && <>
+        <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+        <div className="fixed z-50 bg-white border border-slate-200 rounded-xl shadow-xl py-1 min-w-[220px]"
+          style={{ top: (btnRef.current?.getBoundingClientRect().bottom || 0) + 4, left: (btnRef.current?.getBoundingClientRect().right || 0) - 220 }}>
           <div className="px-3 py-2 text-xs text-slate-400 font-medium border-b border-slate-100">Перемістити в:</div>
           {targets.map(t => (
-            <button key={t.table} onClick={() => moveTo(t)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors">
+            <button key={t.table} onClick={() => moveTo(t)} className="w-full text-left px-3 py-2.5 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors">
               {t.label}
             </button>
           ))}
           <button onClick={() => setOpen(false)} className="w-full text-left px-3 py-2 text-sm text-slate-400 hover:bg-slate-50 border-t border-slate-100">Скасувати</button>
         </div>
-      )}
-    </div>
+      </>}
+    </>
   );
 }
 
