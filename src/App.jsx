@@ -155,6 +155,7 @@ function LoginScreen() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -176,7 +177,13 @@ function LoginScreen() {
         <div><label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="inp w-full" placeholder="admin@nmt.edu" required /></div>
         <div><label className="block text-sm font-medium text-slate-700 mb-1.5">Пароль</label>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="inp w-full" placeholder="••••••••" required /></div>
+          <div className="relative">
+            <input type={showPwd ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} className="inp w-full pr-12" placeholder="••••••••" required />
+            <button type="button" onClick={() => setShowPwd(!showPwd)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors">
+              <Eye size={18} />
+            </button>
+          </div>
+        </div>
         <button type="submit" disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium disabled:opacity-50">
           {loading ? 'Вхід...' : 'Увійти'}
         </button>
