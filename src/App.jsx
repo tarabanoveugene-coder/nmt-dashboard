@@ -6,7 +6,9 @@ import {
   ChevronRight, ArrowLeft, Layers, FolderOpen, FileQuestion, LogOut,
   Save, X, Check, Link, Upload, Trophy, ShieldAlert, ShieldCheck, Eye,
   Key, RefreshCw, Copy, Lock, Headset, Users, UserPlus, Radio,
-  CreditCard, TrendingUp, Calendar, Settings
+  CreditCard, TrendingUp, Calendar, Settings, MessageSquare,
+  Inbox, Bug, Lightbulb, MoreHorizontal, Ban, Filter,
+  ChevronLeft, CheckCircle2, Image as ImageIcon
 } from 'lucide-react';
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -122,6 +124,7 @@ function AppInner() {
           <SidebarItem icon={<LayoutDashboard size={20} />} label="Дашборд" active={activeMenu === 'dashboard'} onClick={() => setActiveMenu('dashboard')} />
           <SidebarItem icon={<BookOpen size={20} />} label="Предмети" active={activeMenu === 'subjects'} onClick={() => setActiveMenu('subjects')} />
           {canSeeUsers && <SidebarItem icon={<ShieldCheck size={20} />} label="Користувачі (Адмін)" active={activeMenu === 'users'} onClick={() => setActiveMenu('users')} />}
+          {(user.role === 'superadmin' || user.role === 'support') && <SidebarItem icon={<MessageSquare size={20} />} label="Запити користувачів" active={activeMenu === 'requests'} onClick={() => setActiveMenu('requests')} />}
           <SidebarItem icon={<Settings size={20} />} label="Налаштування" active={activeMenu === 'settings'} onClick={() => setActiveMenu('settings')} />
         </nav>
         <div className="p-4 border-t border-slate-100 space-y-2">
@@ -135,6 +138,7 @@ function AppInner() {
             {activeMenu === 'dashboard' && 'Огляд та Аналітика'}
             {activeMenu === 'subjects' && 'Управління контентом'}
             {activeMenu === 'users' && 'Керування доступом'}
+            {activeMenu === 'requests' && 'Служба підтримки'}
             {activeMenu === 'settings' && 'Налаштування'}
           </h2>
           <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">{user.name?.[0] || 'А'}</div>
@@ -143,6 +147,7 @@ function AppInner() {
           {activeMenu === 'dashboard' && <DashboardView />}
           {activeMenu === 'subjects' && <SubjectsView user={user} />}
           {activeMenu === 'users' && canSeeUsers && <UsersAdminView />}
+          {activeMenu === 'requests' && <SupportRequestsView />}
           {activeMenu === 'settings' && <Empty text="Налаштування у розробці" />}
         </div></div>
       </main>
@@ -624,6 +629,166 @@ function ExamFoldersView({ sid, onSelect }) {
       {!folders.length && <Empty text="Створіть першу папку" />}
     </div>
   );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SUPPORT REQUESTS (Supabase-backed)
+// ══════════════════════════════════════════════════════════════════════════
+function SupportRequestsView() {
+  const { user } = useAuth();
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [page, setPage] = useState(1);
+  const perPage = 15;
+
+  async function load() {
+    setLoading(true);
+    let q = supabase.from('support_requests').select('*').order('created_at', { ascending: false });
+    if (statusFilter !== 'all') q = q.eq('status', statusFilter);
+    if (dateFilter === 'today') q = q.gte('created_at', new Date(Date.now() - 86400000).toISOString());
+    else if (dateFilter === 'week') q = q.gte('created_at', new Date(Date.now() - 7 * 86400000).toISOString());
+    else if (dateFilter === 'month') q = q.gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString());
+    else if (dateFilter === 'custom') {
+      if (customStart) q = q.gte('created_at', customStart);
+      if (customEnd) q = q.lte('created_at', customEnd + 'T23:59:59');
+    }
+    const { data } = await q;
+    setRequests(data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); setPage(1); }, [statusFilter, dateFilter, customStart, customEnd]);
+
+  async function updateStatus(id, status) {
+    const updates = { status, updated_at: new Date().toISOString() };
+    if (status === 'resolved') updates.resolved_by = user.id;
+    if (status === 'pending') updates.assigned_to = user.id;
+    await supabase.from('support_requests').update(updates).eq('id', id);
+    load();
+    if (selected?.id === id) setSelected({ ...selected, status });
+  }
+
+  // Detail view
+  if (selected) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setSelected(null)} className="p-2 -ml-2 rounded-lg text-slate-400 hover:bg-slate-100"><ArrowLeft size={20} /></button>
+            <div>
+              <h2 className="text-xl font-bold text-slate-800">Запит {selected.request_number}</h2>
+              <p className="text-slate-500 text-sm mt-0.5">Від: {selected.user_name} ({selected.user_email}) &bull; {new Date(selected.created_at).toLocaleString('uk-UA')}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <CatBadge cat={selected.category} />
+            <StatusBadge status={selected.status} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 className="font-semibold text-slate-800 mb-4 pb-4 border-b border-slate-100">Тема: {selected.subject}</h3>
+              <div className="bg-slate-50 p-4 rounded-xl text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">{selected.message}</div>
+              {selected.attachments?.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-slate-100">
+                  <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2 mb-4"><ImageIcon size={16} className="text-slate-400" /> Прикріплені фото</h4>
+                  <div className="flex gap-4 overflow-x-auto pb-2">
+                    {selected.attachments.map((url, i) => <img key={i} src={url} alt="" className="h-32 rounded-lg border object-cover shadow-sm" />)}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+              <h3 className="font-semibold text-slate-800 pb-2 border-b border-slate-100">Дії із запитом</h3>
+              <div className="space-y-2">
+                <button onClick={() => updateStatus(selected.id, 'resolved')} className="w-full py-2.5 px-4 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl text-sm font-medium flex items-center gap-2"><CheckCircle2 size={16} /> Вирішено</button>
+                <button onClick={() => updateStatus(selected.id, 'pending')} className="w-full py-2.5 px-4 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl text-sm font-medium flex items-center gap-2"><Activity size={16} /> В роботу</button>
+                <button onClick={() => updateStatus(selected.id, 'irrelevant')} className="w-full py-2.5 px-4 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl text-sm font-medium flex items-center gap-2"><Ban size={16} /> Не релевантно</button>
+              </div>
+              <p className="text-xs text-slate-400 pt-2 border-t border-slate-100 text-center">Зворотній зв'язок з користувачем не передбачений.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // List view
+  const total = requests.length;
+  const totalPages = Math.ceil(total / perPage) || 1;
+  const pageItems = requests.slice((page - 1) * perPage, page * perPage);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4">
+        <div><h3 className="text-xl font-bold text-slate-800">Звернення користувачів</h3><p className="text-sm text-slate-500 mt-1">Тікети з форми "Написати нам"</p></div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative"><select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-10 pr-4 rounded-xl shadow-sm text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">Всі статуси</option><option value="new">Нові</option><option value="pending">В роботі</option><option value="resolved">Вирішено</option><option value="irrelevant">Не релевантно</option>
+          </select><Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} /></div>
+          <div className="relative"><select value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-10 pr-4 rounded-xl shadow-sm text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">За весь час</option><option value="today">Сьогодні</option><option value="week">За тиждень</option><option value="month">За місяць</option><option value="custom">Кастомний</option>
+          </select><Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} /></div>
+          {dateFilter === 'custom' && <div className="flex items-center gap-2"><input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="inp" /><span className="text-slate-400">-</span><input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="inp" /></div>}
+        </div>
+      </div>
+
+      {loading ? <Spinner /> : (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[900px]">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
+                <tr><th className="px-6 py-4 font-medium w-32">ID / Дата</th><th className="px-6 py-4 font-medium">Користувач</th><th className="px-6 py-4 font-medium">Тег</th><th className="px-6 py-4 font-medium">Тема</th><th className="px-6 py-4 font-medium">Статус</th><th className="px-6 py-4 font-medium text-right">Дії</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {pageItems.map(req => (
+                  <tr key={req.id} className="hover:bg-slate-50/80 group">
+                    <td className="px-6 py-4"><div className="font-mono text-slate-800 font-medium">{req.request_number}</div><div className="text-slate-400 text-xs mt-0.5">{new Date(req.created_at).toLocaleDateString('uk-UA')}</div></td>
+                    <td className="px-6 py-4"><div className="font-medium text-slate-800">{req.user_name}</div><div className="text-slate-500 text-xs mt-0.5">{req.user_email}</div></td>
+                    <td className="px-6 py-4"><CatBadge cat={req.category} /></td>
+                    <td className="px-6 py-4"><div className="text-slate-800 font-medium truncate max-w-[200px] flex items-center gap-2">{req.attachments?.length > 0 && <ImageIcon size={14} className="text-blue-500 shrink-0" />}{req.subject}</div><div className="text-slate-500 text-xs truncate max-w-[200px] mt-0.5">{req.message}</div></td>
+                    <td className="px-6 py-4"><StatusBadge status={req.status} /></td>
+                    <td className="px-6 py-4 text-right"><button onClick={() => setSelected(req)} className="px-4 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg text-sm font-medium transition-colors">Відкрити</button></td>
+                  </tr>
+                ))}
+                {!pageItems.length && <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-500">Запитів не знайдено</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="p-4 bg-slate-50/50 rounded-b-xl flex items-center justify-between">
+            <span className="text-sm text-slate-500">{total > 0 ? (page-1)*perPage+1 : 0}–{Math.min(page*perPage, total)} з {total}</span>
+            <div className="flex gap-1.5">
+              <button disabled={page===1} onClick={() => setPage(p=>p-1)} className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-blue-600 disabled:opacity-50 bg-white shadow-sm"><ChevronLeft size={18} /></button>
+              <button disabled={page>=totalPages} onClick={() => setPage(p=>p+1)} className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-blue-600 disabled:opacity-50 bg-white shadow-sm"><ChevronRight size={18} /></button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CatBadge({ cat }) {
+  if (cat === 'bug') return <span className="px-3 py-1 rounded-full bg-rose-50 text-rose-700 font-medium text-xs flex items-center gap-1.5 w-max"><Bug size={14} /> Помилка</span>;
+  if (cat === 'idea') return <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-medium text-xs flex items-center gap-1.5 w-max"><Lightbulb size={14} /> Ідея</span>;
+  return <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-medium text-xs flex items-center gap-1.5 w-max"><MoreHorizontal size={14} /> Інше</span>;
+}
+
+function StatusBadge({ status }) {
+  if (status === 'new') return <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 font-semibold text-xs flex items-center gap-1.5 w-max"><Inbox size={14} /> Новий</span>;
+  if (status === 'pending') return <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold text-xs flex items-center gap-1.5 w-max"><Activity size={14} /> В роботі</span>;
+  if (status === 'resolved') return <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-xs flex items-center gap-1.5 w-max"><CheckCircle2 size={14} /> Вирішено</span>;
+  return <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 font-semibold text-xs flex items-center gap-1.5 w-max"><Ban size={14} /> Не релевантно</span>;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
