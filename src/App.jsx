@@ -14,6 +14,8 @@ import {
 // ══════════════════════════════════════════════════════════════════════════
 const AuthCtx = createContext(null);
 function useAuth() { return useContext(AuthCtx); }
+/** superadmin and moderator can edit; analyst and support are read-only */
+function useCanEdit() { const { user } = useAuth(); return user?.role === 'superadmin' || user?.role === 'moderator'; }
 
 function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -506,6 +508,7 @@ function FormatsGrid({ subjectId, formats, onSelect }) {
 // TOPICS TABLE (with CRUD)
 // ══════════════════════════════════════════════════════════════════════════
 function TopicsTable({ subjectId, formatTable, onSelect }) {
+  const canEdit = useCanEdit();
   const [topics, setTopics] = useState([]); const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false); const [editId, setEditId] = useState(null);
   const [newName, setNewName] = useState(''); const [newTag, setNewTag] = useState('');
@@ -525,8 +528,8 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
   if (loading) return <Spinner />;
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Тем: <strong>{topics.length}</strong></span><Btn onClick={() => setShowAdd(!showAdd)}><Plus size={16} /> Додати тему</Btn></div>
-      {showAdd && <form onSubmit={addTopic} className="bg-white border border-emerald-200 rounded-xl p-4 flex gap-3 items-end shadow-sm">
+      <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Тем: <strong>{topics.length}</strong></span>{canEdit && <Btn onClick={() => setShowAdd(!showAdd)}><Plus size={16} /> Додати тему</Btn>}</div>
+      {showAdd && canEdit && <form onSubmit={addTopic} className="bg-white border border-emerald-200 rounded-xl p-4 flex gap-3 items-end shadow-sm">
         <div className="flex-1"><label className="block text-sm font-medium text-slate-600 mb-1">Назва</label><input value={newName} onChange={e => setNewName(e.target.value)} className="inp w-full" required /></div>
         <div className="w-48"><label className="block text-sm font-medium text-slate-600 mb-1">Тег</label><input value={newTag || slug(newName)} onChange={e => setNewTag(e.target.value)} className="inp w-full" /></div>
         <button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg"><Check size={16} /></button>
@@ -544,8 +547,8 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
               <td className="px-6 py-4"><span className="bg-slate-100 text-slate-700 py-1 px-3 rounded-full text-xs font-semibold">{tp.cnt}</span></td>
               <td className="px-6 py-4 text-right flex justify-end gap-2">
                 <button onClick={() => onSelect(tp)} className="px-4 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg text-sm font-medium">Відкрити</button>
-                <Abtn icon={<Edit size={16} />} onClick={() => setEditId(tp.id)} />
-                <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from('topics').update({ is_active: false }).eq('id', tp.id); load(); }} />
+                {canEdit && <Abtn icon={<Edit size={16} />} onClick={() => setEditId(tp.id)} />}
+                {canEdit && <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from('topics').update({ is_active: false }).eq('id', tp.id); load(); }} />}
               </td>
             </tr>
           ))}
@@ -558,6 +561,7 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
 // GENERIC TABLE (questions from any table)
 // ══════════════════════════════════════════════════════════════════════════
 function GenericTable({ sid, tag, table, textKey, folderId }) {
+  const canEdit = useCanEdit();
   const [items, setItems] = useState([]); const [loading, setLoading] = useState(true);
   async function load() { setLoading(true);
     let q = supabase.from(table).select('*').eq('is_active', true).order('updated_at', { ascending: false }).limit(200);
@@ -571,15 +575,15 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center"><span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span></div>
-      <Table heads={['#', 'Зміст', 'Тип', '']}>
+      <Table heads={['#', 'Зміст', 'Тип', canEdit ? '' : null].filter(Boolean)}>
         {items.map((q, i) => (
           <tr key={q.id} className="hover:bg-slate-50/80 group">
             <td className="px-6 py-4 text-slate-400 text-xs text-center">{i + 1}</td>
             <td className="px-6 py-4 font-medium text-slate-800 max-w-lg"><div className="line-clamp-2">{q[textKey] || JSON.stringify(q.question_data || {}).substring(0, 80)}</div></td>
             <td className="px-6 py-4 text-xs text-slate-500">{q.format || q.question_type || table.replace('_questions', '')}</td>
-            <td className="px-6 py-4 flex justify-end gap-1 opacity-0 group-hover:opacity-100">
+            {canEdit && <td className="px-6 py-4 flex justify-end gap-1 opacity-0 group-hover:opacity-100">
               <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from(table).update({ is_active: false }).eq('id', q.id); load(); }} />
-            </td>
+            </td>}
           </tr>
         ))}
       </Table>
@@ -592,6 +596,7 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
 // EXAM FOLDERS
 // ══════════════════════════════════════════════════════════════════════════
 function ExamFoldersView({ sid, onSelect }) {
+  const canEdit = useCanEdit();
   const [folders, setFolders] = useState([]); const [loading, setLoading] = useState(true); const [newName, setNewName] = useState('');
   async function load() { setLoading(true);
     const { data } = await supabase.from('exam_folders').select('*').eq('subject_id', sid).eq('is_active', true).order('sort_order');
@@ -604,12 +609,12 @@ function ExamFoldersView({ sid, onSelect }) {
   if (loading) return <Spinner />;
   return (
     <div className="space-y-4">
-      <form onSubmit={add} className="flex gap-3"><input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Назва нової папки..." className="inp flex-1" /><Btn type="submit"><Plus size={16} /> Створити</Btn></form>
+      {canEdit && <form onSubmit={add} className="flex gap-3"><input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Назва нової папки..." className="inp flex-1" /><Btn type="submit"><Plus size={16} /> Створити</Btn></form>}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {folders.map(f => (
           <div key={f.id} className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-amber-400 hover:shadow-md cursor-pointer group" onClick={() => onSelect(f)}>
             <div className="flex items-start justify-between mb-3"><div className="p-3 bg-amber-50 text-amber-600 rounded-xl group-hover:bg-amber-500 group-hover:text-white"><FolderOpen size={24} /></div>
-              <Abtn icon={<Trash2 size={14} />} danger onClick={async e => { e.stopPropagation(); if (!confirm('Видалити папку?')) return; await supabase.from('exam_questions').delete().eq('folder_id', f.id); await supabase.from('exam_folders').delete().eq('id', f.id); load(); }} />
+              {canEdit && <Abtn icon={<Trash2 size={14} />} danger onClick={async e => { e.stopPropagation(); if (!confirm('Видалити папку?')) return; await supabase.from('exam_questions').delete().eq('folder_id', f.id); await supabase.from('exam_folders').delete().eq('id', f.id); load(); }} />}
             </div>
             <h3 className="font-semibold text-slate-800 text-lg mb-1">{f.name}</h3>
             <div className="text-sm text-slate-500">Питань: <strong>{f.cnt}</strong></div>
