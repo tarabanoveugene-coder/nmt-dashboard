@@ -714,6 +714,7 @@ function SupportRequestsView() {
                 <button onClick={() => updateStatus(selected.id, 'resolved')} className="w-full py-2.5 px-4 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl text-sm font-medium flex items-center gap-2"><CheckCircle2 size={16} /> Вирішено</button>
                 <button onClick={() => updateStatus(selected.id, 'pending')} className="w-full py-2.5 px-4 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl text-sm font-medium flex items-center gap-2"><Activity size={16} /> В роботу</button>
                 <button onClick={() => updateStatus(selected.id, 'irrelevant')} className="w-full py-2.5 px-4 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl text-sm font-medium flex items-center gap-2"><Ban size={16} /> Не релевантно</button>
+                <button onClick={async () => { if (!confirm('Видалити запит назавжди?')) return; await supabase.from('support_requests').delete().eq('id', selected.id); setSelected(null); load(); }} className="w-full py-2.5 px-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-sm font-medium flex items-center gap-2"><Trash2 size={16} /> Видалити</button>
               </div>
               <p className="text-xs text-slate-400 pt-2 border-t border-slate-100 text-center">Зворотній зв'язок з користувачем не передбачений.</p>
             </div>
