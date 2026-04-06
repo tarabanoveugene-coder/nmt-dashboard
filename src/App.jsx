@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, createContext, useContext } from 'react';
 import { supabase } from './lib/supabase';
 import ExcelImport, { downloadTemplate, TEMPLATES } from './ExcelImport';
+import { FORM_MAP } from './QuestionForms';
 import {
   LayoutDashboard, BookOpen, Edit, Trash2, Plus, Activity, Landmark,
   BookText, Calculator, Globe, Microscope, Earth, FlaskConical, Zap,
@@ -583,7 +584,9 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
   const canEdit = useCanEdit();
   const [items, setItems] = useState([]); const [loading, setLoading] = useState(true);
   const [showImport, setShowImport] = useState(false);
+  const [formId, setFormId] = useState(null); // null=hidden, 'new'=add, uuid=edit
   const hasTemplate = !!TEMPLATES[table];
+  const FormComponent = FORM_MAP[table];
   async function load() { setLoading(true);
     let q = supabase.from(table).select('*').eq('is_active', true).order('updated_at', { ascending: false }).limit(200);
     if (tag) q = q.eq('topic_tag', tag);
@@ -597,14 +600,18 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span>
-        {canEdit && hasTemplate && (
+        {canEdit && (
           <div className="flex gap-2">
-            <button onClick={() => downloadTemplate(table)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors"><Download size={14} /> Шаблон .xlsx</button>
-            <button onClick={() => setShowImport(!showImport)} className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-sm font-medium transition-colors"><Upload size={14} /> Імпорт з Excel</button>
+            {hasTemplate && <>
+              <button onClick={() => downloadTemplate(table)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors"><Download size={14} /> Шаблон .xlsx</button>
+              <button onClick={() => { setShowImport(!showImport); setFormId(null); }} className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-sm font-medium transition-colors"><Upload size={14} /> Імпорт з Excel</button>
+            </>}
+            {FormComponent && <button onClick={() => { setFormId('new'); setShowImport(false); }} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-sm"><Plus size={16} /> Додати питання</button>}
           </div>
         )}
       </div>
       {showImport && canEdit && <ExcelImport formatTable={table} subjectId={sid} topicTag={tag} onImported={() => { setShowImport(false); load(); }} />}
+      {formId && canEdit && FormComponent && <FormComponent sid={sid} tag={tag} qid={formId === 'new' ? null : formId} onDone={() => { setFormId(null); load(); }} onCancel={() => setFormId(null)} />}
       <Table heads={['#', 'Зміст', 'Тип', canEdit ? '' : null].filter(Boolean)}>
         {items.map((q, i) => (
           <tr key={q.id} className="hover:bg-slate-50/80 group">
@@ -612,6 +619,7 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
             <td className="px-6 py-4 font-medium text-slate-800 max-w-lg"><div className="line-clamp-2">{q[textKey] || JSON.stringify(q.question_data || {}).substring(0, 80)}</div></td>
             <td className="px-6 py-4 text-xs text-slate-500">{q.format || q.question_type || table.replace('_questions', '')}</td>
             {canEdit && <td className="px-6 py-4 flex justify-end gap-1 opacity-0 group-hover:opacity-100">
+              {FormComponent && <Abtn icon={<Edit size={16} />} onClick={() => { setFormId(q.id); setShowImport(false); }} />}
               <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from(table).update({ is_active: false }).eq('id', q.id); load(); }} />
             </td>}
           </tr>
