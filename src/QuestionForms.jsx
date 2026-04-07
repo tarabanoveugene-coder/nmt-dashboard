@@ -154,13 +154,17 @@ export function PairsForm({ sid, tag, qid, onDone, onCancel }) {
         <div>
           <h4 className="text-sm font-medium text-slate-700 mb-3">Права колонка</h4>
           <div className="space-y-3">
-            {f.right.map((v, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-md bg-amber-50 text-amber-700 flex items-center justify-center font-bold text-sm shrink-0 border border-amber-200">{RID[i]}</div>
-                <input value={v} onChange={e => { const r = [...f.right]; r[i] = e.target.value; setF({ ...f, right: r }); }}
-                  className="flex-1 bg-white border border-slate-200 text-slate-800 px-3 py-1.5 rounded-md focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm h-8" required />
-              </div>
-            ))}
+            {f.right.map((v, i) => {
+              const isExtra = i === 4;
+              return (
+                <div key={i} className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-md flex items-center justify-center font-bold text-sm shrink-0 border ${isExtra ? 'bg-slate-50 text-slate-400 border-slate-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{RID[i]}</div>
+                  <input value={v} onChange={e => { const r = [...f.right]; r[i] = e.target.value; setF({ ...f, right: r }); }}
+                    placeholder={isExtra ? 'необов\'язково — зайвий варіант' : ''}
+                    className={`flex-1 bg-white border text-slate-800 px-3 py-1.5 rounded-md focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm h-8 ${isExtra ? 'border-dashed border-slate-300' : 'border-slate-200'}`} {...(isExtra ? {} : { required: true })} />
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
