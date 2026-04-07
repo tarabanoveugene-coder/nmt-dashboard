@@ -123,16 +123,46 @@ export function PairsForm({ sid, tag, qid, onDone, onCancel }) {
 
   return (
     <FormWrap title="Логічні пари" color="indigo" onCancel={onCancel} onSubmit={submit} saving={saving}>
-      <Field label="Інструкція"><input value={f.instruction} onChange={e => setF({ ...f, instruction: e.target.value })} className={inp} /></Field>
-      <div className="grid grid-cols-2 gap-6">
-        <div><label className="block text-sm font-medium text-slate-600 mb-2">Ліва колонка</label>
-          {f.left.map((v, i) => (<div key={i} className="flex items-center gap-2 mb-2"><span className="w-6 h-6 rounded bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span><input value={v} onChange={e => { const l = [...f.left]; l[i] = e.target.value; setF({ ...f, left: l }); }} className={inp} required /><select value={f.pairs[String(i + 1)]} onChange={e => { const p = { ...f.pairs }; p[String(i + 1)] = e.target.value; setF({ ...f, pairs: p }); }} className={inp + ' w-16 shrink-0'}>{RID.map(r => <option key={r}>{r}</option>)}</select></div>))}
+      <Field label="Інструкція">
+        <input value={f.instruction} onChange={e => setF({ ...f, instruction: e.target.value })} className="w-full bg-white border border-slate-200 text-slate-800 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm" />
+      </Field>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div>
+          <h4 className="text-sm font-medium text-slate-700 mb-3">Ліва колонка</h4>
+          <div className="space-y-3">
+            {f.left.map((v, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-md bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold text-sm shrink-0 border border-indigo-100">{i + 1}</div>
+                <input value={v} onChange={e => { const l = [...f.left]; l[i] = e.target.value; setF({ ...f, left: l }); }}
+                  className="flex-1 bg-white border border-slate-200 text-slate-800 px-3 py-1.5 rounded-md focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm h-8" required />
+                <div className="relative shrink-0 w-16">
+                  <select value={f.pairs[String(i + 1)]} onChange={e => { const p = { ...f.pairs }; p[String(i + 1)] = e.target.value; setF({ ...f, pairs: p }); }}
+                    className="w-full appearance-none bg-white border border-slate-200 text-amber-600 font-bold px-3 py-1.5 rounded-md focus:outline-none focus:border-blue-500 cursor-pointer text-sm h-8 pl-8">
+                    {RID.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                  <div className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-amber-100 rounded-sm flex items-center justify-center text-[10px] text-amber-700 font-bold pointer-events-none">{f.pairs[String(i + 1)] || RID[i]}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-        <div><label className="block text-sm font-medium text-slate-600 mb-2">Права колонка</label>
-          {f.right.map((v, i) => (<div key={i} className="flex items-center gap-2 mb-2"><span className="w-6 h-6 rounded bg-amber-100 text-amber-700 text-xs font-bold flex items-center justify-center shrink-0">{RID[i]}</span><input value={v} onChange={e => { const r = [...f.right]; r[i] = e.target.value; setF({ ...f, right: r }); }} className={inp} required /></div>))}
+        <div>
+          <h4 className="text-sm font-medium text-slate-700 mb-3">Права колонка</h4>
+          <div className="space-y-3">
+            {f.right.map((v, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-md bg-amber-50 text-amber-700 flex items-center justify-center font-bold text-sm shrink-0 border border-amber-200">{RID[i]}</div>
+                <input value={v} onChange={e => { const r = [...f.right]; r[i] = e.target.value; setF({ ...f, right: r }); }}
+                  className="flex-1 bg-white border border-slate-200 text-slate-800 px-3 py-1.5 rounded-md focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm h-8" required />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-      <Field label="Пояснення"><textarea value={f.explanation} onChange={e => setF({ ...f, explanation: e.target.value })} className={inp} rows={2} /></Field>
+      <Field label="Пояснення">
+        <textarea value={f.explanation} onChange={e => setF({ ...f, explanation: e.target.value })} rows={3}
+          className="w-full bg-white border border-slate-200 text-slate-800 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y text-sm" />
+      </Field>
       <ImageField value={f.image_url} onChange={v => setF({ ...f, image_url: v })} />
     </FormWrap>
   );
