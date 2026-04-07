@@ -488,10 +488,25 @@ function DrillDown({ subject, user }) {
 function FormatsGrid({ subjectId, formats, onSelect }) {
   const [counts, setCounts] = useState({});
   useEffect(() => {
-    Promise.all(formats.filter(f => f.table).map(async f => {
-      const { count } = await supabase.from(f.table).select('*', { count: 'exact', head: true }).eq('subject_id', subjectId).eq('is_active', true);
-      return [f.id, count || 0];
-    })).then(entries => setCounts(Object.fromEntries(entries)));
+    // Count questions per format table
+    const allTables = ['questions', 'blitz_questions', 'logical_pairs_questions', 'gallery_questions', 'seven_questions'];
+    Promise.all([
+      // Individual format counts
+      ...formats.filter(f => f.table && !f.isExam).map(async f => {
+        const { count } = await supabase.from(f.table).select('*', { count: 'exact', head: true }).eq('subject_id', subjectId).eq('is_active', true);
+        return [f.id, count || 0];
+      }),
+      // Express = sum of ALL tables (except exam)
+      (async () => {
+        const results = await Promise.all(allTables.map(t => supabase.from(t).select('*', { count: 'exact', head: true }).eq('subject_id', subjectId).eq('is_active', true)));
+        return ['express', results.reduce((sum, r) => sum + (r.count || 0), 0)];
+      })(),
+      // Exam
+      ...formats.filter(f => f.isExam).map(async f => {
+        const { count } = await supabase.from(f.table).select('*', { count: 'exact', head: true }).eq('subject_id', subjectId).eq('is_active', true);
+        return [f.id, count || 0];
+      }),
+    ]).then(entries => setCounts(Object.fromEntries(entries)));
   }, [subjectId]);
 
   return (
