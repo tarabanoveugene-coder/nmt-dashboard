@@ -108,15 +108,20 @@ export function BlitzForm({ sid, tag, qid, onDone, onCancel }) {
 // LOGICAL PAIRS (4↔4)
 // ══════════════════════════════════════════════════════════════════════════
 export function PairsForm({ sid, tag, qid, onDone, onCancel }) {
-  const RID = ['А', 'Б', 'В', 'Г'];
-  const [f, setF] = useState({ instruction: 'Встановіть відповідність', left: ['', '', '', ''], right: ['', '', '', ''], pairs: { '1': 'А', '2': 'Б', '3': 'В', '4': 'Г' }, explanation: '', image_url: '' });
+  const RID = ['А', 'Б', 'В', 'Г', 'Д'];
+  const [f, setF] = useState({ instruction: 'Встановіть відповідність', left: ['', '', '', ''], right: ['', '', '', '', ''], pairs: { '1': 'А', '2': 'Б', '3': 'В', '4': 'Г' }, explanation: '', image_url: '' });
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { if (qid) supabase.from('logical_pairs_questions').select('*').eq('id', qid).single().then(({ data: d }) => { if (d) setF({ instruction: d.instruction, left: (d.left_items || []).map(i => i.text), right: (d.right_items || []).map(i => i.text), pairs: d.correct_pairs || { '1': 'А', '2': 'Б', '3': 'В', '4': 'Г' }, explanation: d.explanation || '', image_url: d.image_url || '' }); }); }, [qid]);
+  useEffect(() => { if (qid) supabase.from('logical_pairs_questions').select('*').eq('id', qid).single().then(({ data: d }) => { if (d) {
+    const rightTexts = (d.right_items || []).map(i => i.text);
+    while (rightTexts.length < 5) rightTexts.push('');
+    setF({ instruction: d.instruction, left: (d.left_items || []).map(i => i.text), right: rightTexts, pairs: d.correct_pairs || { '1': 'А', '2': 'Б', '3': 'В', '4': 'Г' }, explanation: d.explanation || '', image_url: d.image_url || '' });
+  }}); }, [qid]);
 
   async function submit(e) {
     e.preventDefault(); setSaving(true);
-    const p = { instruction: f.instruction, left_items: f.left.map((t, i) => ({ id: String(i + 1), text: t })), right_items: f.right.map((t, i) => ({ id: RID[i], text: t })), correct_pairs: f.pairs, explanation: f.explanation, difficulty: 1, image_url: f.image_url || null, subject_id: sid, topic_tag: tag, is_active: true, updated_at: new Date().toISOString() };
+    const rightItems = f.right.map((t, i) => ({ id: RID[i], text: t })).filter(item => item.text.trim() !== '');
+    const p = { instruction: f.instruction, left_items: f.left.map((t, i) => ({ id: String(i + 1), text: t })), right_items: rightItems, correct_pairs: f.pairs, explanation: f.explanation, difficulty: 1, image_url: f.image_url || null, subject_id: sid, topic_tag: tag, is_active: true, updated_at: new Date().toISOString() };
     if (qid) await supabase.from('logical_pairs_questions').update(p).eq('id', qid); else await supabase.from('logical_pairs_questions').insert(p);
     setSaving(false); onDone();
   }
