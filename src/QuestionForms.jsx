@@ -1,7 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext, createContext } from 'react';
 import { supabase } from './lib/supabase';
 import { Save, X, Check, Plus } from 'lucide-react';
 import ImageField from './ImageField';
+import { logAction } from './adminLogger';
+
+// Get user from window (set by App.jsx)
+function getUser() { return window.__adminUser || null; }
 
 // Shared input class
 const inp = "border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full";
@@ -47,6 +51,7 @@ export function QuestionsForm({ sid, tag, qid, onDone, onCancel }) {
     e.preventDefault(); setSaving(true);
     const p = { question_text: f.question_text, options: f.options, correct_index: f.correct_index, explanation: f.explanation, difficulty: f.difficulty, source_year: f.source_year ? parseInt(f.source_year) : null, image_url: f.image_url || null, subject_id: sid, topic_tag: tag, format: 'single_choice', is_active: true, status: 'verified', updated_at: new Date().toISOString() };
     if (qid) await supabase.from('questions').update(p).eq('id', qid); else await supabase.from('questions').insert(p);
+    logAction(getUser(), qid ? 'update' : 'create', 'question', qid, { text: f.question_text?.substring(0, 80) });
     setSaving(false); onDone();
   }
 
@@ -87,6 +92,7 @@ export function BlitzForm({ sid, tag, qid, onDone, onCancel }) {
     e.preventDefault(); setSaving(true);
     const p = { text: f.text, is_true: f.is_true, explanation: f.explanation, difficulty: f.difficulty, image_url: f.image_url || null, subject_id: sid, topic_tag: tag, is_active: true, updated_at: new Date().toISOString() };
     if (qid) await supabase.from('blitz_questions').update(p).eq('id', qid); else await supabase.from('blitz_questions').insert(p);
+    logAction(getUser(), qid ? 'update' : 'create', 'blitz', qid, { text: f.text?.substring(0, 80) });
     setSaving(false); onDone();
   }
 
@@ -123,6 +129,7 @@ export function PairsForm({ sid, tag, qid, onDone, onCancel }) {
     const rightItems = f.right.map((t, i) => ({ id: RID[i], text: t })).filter(item => item.text.trim() !== '');
     const p = { instruction: f.instruction, left_items: f.left.map((t, i) => ({ id: String(i + 1), text: t })), right_items: rightItems, correct_pairs: f.pairs, explanation: f.explanation, difficulty: 1, image_url: f.image_url || null, subject_id: sid, topic_tag: tag, is_active: true, updated_at: new Date().toISOString() };
     if (qid) await supabase.from('logical_pairs_questions').update(p).eq('id', qid); else await supabase.from('logical_pairs_questions').insert(p);
+    logAction(getUser(), qid ? 'update' : 'create', 'pairs', qid, { text: f.instruction?.substring(0, 80) });
     setSaving(false); onDone();
   }
 
@@ -190,6 +197,7 @@ export function GalleryForm({ sid, tag, qid, onDone, onCancel }) {
     e.preventDefault(); setSaving(true);
     const p = { question_text: f.question_text, options: f.options, correct_index: f.correct_index, image_url: f.image_url || null, image_hint: f.image_hint, image_category: 'architecture', explanation: f.explanation, difficulty: f.difficulty, subject_id: sid, topic_tag: tag, is_active: true, updated_at: new Date().toISOString() };
     if (qid) await supabase.from('gallery_questions').update(p).eq('id', qid); else await supabase.from('gallery_questions').insert(p);
+    logAction(getUser(), qid ? 'update' : 'create', 'gallery', qid, { text: f.question_text?.substring(0, 80) });
     setSaving(false); onDone();
   }
 
@@ -220,6 +228,7 @@ export function SevensForm({ sid, tag, qid, onDone, onCancel }) {
     e.preventDefault(); if (f.correct_answers.length !== 3) { alert('Оберіть рівно 3 правильні'); return; } setSaving(true);
     const p = { text: f.text, options: f.options, correct_answers: f.correct_answers, explanation: f.explanation, difficulty: f.difficulty, image_url: f.image_url || null, subject_id: sid, topic_tag: tag, is_active: true, updated_at: new Date().toISOString() };
     if (qid) await supabase.from('seven_questions').update(p).eq('id', qid); else await supabase.from('seven_questions').insert(p);
+    logAction(getUser(), qid ? 'update' : 'create', 'seven', qid, { text: f.text?.substring(0, 80) });
     setSaving(false); onDone();
   }
 

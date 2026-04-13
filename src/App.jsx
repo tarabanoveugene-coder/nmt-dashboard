@@ -116,6 +116,7 @@ export default function App() {
 function AppInner() {
   const { user, logout } = useAuth();
   if (!user) return <LoginScreen />;
+  window.__adminUser = user; // expose for QuestionForms logging
 
   const [activeMenu, setActiveMenu] = useState('subjects');
   const canSeeUsers = user.role === 'superadmin';
@@ -288,7 +289,7 @@ function UsersAdminView() {
                 <td className="px-6 py-4"><span className={`px-3 py-1 rounded-full text-xs font-medium border flex w-max items-center gap-1.5 ${a.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}><span className={`w-1.5 h-1.5 rounded-full ${a.status === 'active' ? 'bg-emerald-500' : 'bg-red-500'}`} />{a.status === 'active' ? 'Активний' : 'Неактивний'}</span></td>
                 <td className="px-6 py-4 flex justify-end gap-2">
                   <Abtn icon={<Edit size={16} />} onClick={() => { setEditUser(a); setView('form'); }} />
-                  <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Видалити?')) return; await supabase.from('admin_users').delete().eq('id', a.id); load(); }} />
+                  <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Видалити?')) return; await supabase.from('admin_users').delete().eq('id', a.id); logAction(window.__adminUser, 'delete', 'admin_user', a.id, { name: a.name, email: a.email }); load(); }} />
                 </td>
               </tr>
             ))}
@@ -334,6 +335,7 @@ function UserForm({ user, onBack }) {
     const payload = { name, email, role, status, allowed_subjects: subjects, allowed_formats: formats };
     if (isNew) { payload.password_hash = pwd; await supabase.from('admin_users').insert(payload); }
     else { if (pwd) payload.password_hash = pwd; await supabase.from('admin_users').update(payload).eq('id', user.id); }
+    logAction(window.__adminUser, isNew ? 'create' : 'update', 'admin_user', null, { name, email, role });
     setSaving(false); onBack();
   }
 
@@ -535,6 +537,7 @@ function FormatsGrid({ subjectId, formats, onSelect }) {
 // TOPICS TABLE (with CRUD)
 // ══════════════════════════════════════════════════════════════════════════
 function TopicsTable({ subjectId, formatTable, onSelect }) {
+  const { user } = useAuth();
   const canEdit = useCanEdit();
   const [topics, setTopics] = useState([]); const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false); const [editId, setEditId] = useState(null);
@@ -549,8 +552,8 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
   useEffect(() => { load(); }, [subjectId, formatTable]);
 
   function slug(s) { return s.toLowerCase().replace(/[іїєґ]/g, c => ({ і: 'i', ї: 'yi', є: 'ye', ґ: 'g' }[c] || c)).replace(/[а-яё]/g, c => { const m = 'абвгдежзийклмнопрстуфхцчшщъыьэюя'; const l = 'abvgdezhziyklmnoprstufkhtschchshschyyyeyuya'.match(/.{1,2}/g) || []; const i = m.indexOf(c); return i >= 0 ? (l[i] || '') : c; }).replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
-  async function addTopic(e) { e.preventDefault(); if (!newName.trim()) return; await supabase.from('topics').insert({ name: newName.trim(), tag: newTag.trim() || slug(newName.trim()), subject_id: subjectId, sort_order: topics.length, is_active: true }); setNewName(''); setNewTag(''); setShowAdd(false); load(); }
-  async function renameTopic(id, name) { await supabase.from('topics').update({ name }).eq('id', id); setEditId(null); load(); }
+  async function addTopic(e) { e.preventDefault(); if (!newName.trim()) return; await supabase.from('topics').insert({ name: newName.trim(), tag: newTag.trim() || slug(newName.trim()), subject_id: subjectId, sort_order: topics.length, is_active: true }); logAction(user, 'create', 'topic', null, { name: newName.trim() }); setNewName(''); setNewTag(''); setShowAdd(false); load(); }
+  async function renameTopic(id, name) { await supabase.from('topics').update({ name }).eq('id', id); logAction(user, 'update', 'topic', id, { name }); setEditId(null); load(); }
 
   const [showImport, setShowImport] = useState(false);
   const hasTemplate = !!TEMPLATES[formatTable];
@@ -588,7 +591,7 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
               <td className="px-6 py-4 text-right flex justify-end gap-2">
                 <button onClick={() => onSelect(tp)} className="px-4 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg text-sm font-medium">Відкрити</button>
                 {canEdit && <Abtn icon={<Edit size={16} />} onClick={() => setEditId(tp.id)} />}
-                {canEdit && <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from('topics').update({ is_active: false }).eq('id', tp.id); load(); }} />}
+                {canEdit && <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from('topics').update({ is_active: false }).eq('id', tp.id); logAction(user, 'deactivate', 'topic', tp.id, { name: tp.name }); load(); }} />}
               </td>
             </tr>
           ))}
@@ -710,6 +713,7 @@ function MoveButton({ question, fromTable, sid, onMoved }) {
     const { error } = await supabase.from(target.table).insert(payload);
     if (error) { alert('Помилка: ' + error.message); setMoving(false); return; }
     await supabase.from(fromTable).update({ is_active: false }).eq('id', question.id);
+    logAction(window.__adminUser, 'move', fromTable.replace('_questions',''), question.id, { from: fromTable, to: target.table });
     setMoving(false); setOpen(false); onMoved();
   }
 
@@ -775,6 +779,7 @@ function SupportRequestsView() {
     if (status === 'resolved') updates.resolved_by = user.id;
     if (status === 'pending') updates.assigned_to = user.id;
     await supabase.from('support_requests').update(updates).eq('id', id);
+    logAction(user, 'status_change', 'support_request', id, { status });
     load();
     if (selected?.id === id) setSelected({ ...selected, status });
   }

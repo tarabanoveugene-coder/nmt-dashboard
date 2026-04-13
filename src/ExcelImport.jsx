@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 import { Upload, Download, FileSpreadsheet, Check, AlertCircle, X, Loader2, FolderPlus } from 'lucide-react';
+import { logAction } from './adminLogger';
 
 // ══════════════════════════════════════════════════════════════════════════
 // TEMPLATE DEFINITIONS — кожен шаблон має колонку "Тема"
@@ -294,6 +295,7 @@ export default function ExcelImport({ formatTable, subjectId, topicTag, onImport
     }
 
     setResult({ success, failed, createdTopics: created });
+    if (success > 0) logAction(window.__adminUser, 'import', formatTable.replace('_questions', ''), null, { count: success, failed, topics: created });
     setImporting(false);
     if (success > 0 && onImported) onImported();
   }
