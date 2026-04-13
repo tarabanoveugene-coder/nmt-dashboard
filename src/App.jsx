@@ -940,9 +940,9 @@ function AdminLogsView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4">
         <div><h3 className="text-xl font-bold text-slate-800">Логі дій</h3><p className="text-sm text-slate-500 mt-1">Усі дії адміністраторів в системі</p></div>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
           <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="bg-white border border-slate-200 text-slate-700 py-2 px-3 rounded-xl text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="all">Всі користувачі</option>
             {uniqueUsers.map(u => <option key={u} value={u}>{u}</option>)}
