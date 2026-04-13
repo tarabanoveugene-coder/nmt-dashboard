@@ -2,13 +2,14 @@ import React, { useState, useEffect, useRef, createContext, useContext } from 'r
 import { supabase } from './lib/supabase';
 import ExcelImport, { downloadTemplate, TEMPLATES } from './ExcelImport';
 import { FORM_MAP } from './QuestionForms';
+import { logAction } from './adminLogger';
 import {
   LayoutDashboard, BookOpen, Edit, Trash2, Plus, Activity, Landmark,
   BookText, Calculator, Globe, Microscope, Earth, FlaskConical, Zap,
   ChevronRight, ArrowLeft, Layers, FolderOpen, FileQuestion, LogOut,
   Save, X, Check, Link, Upload, Download, Trophy, ShieldAlert, ShieldCheck, Eye, ArrowRightLeft, Loader2,
   Key, RefreshCw, Copy, Lock, Headset, Users, UserPlus, Radio,
-  CreditCard, TrendingUp, Calendar, Settings, MessageSquare,
+  CreditCard, TrendingUp, Calendar, Settings, MessageSquare, ScrollText,
   Inbox, Bug, Lightbulb, MoreHorizontal, Ban, Filter,
   ChevronLeft, CheckCircle2, Image as ImageIcon
 } from 'lucide-react';
@@ -43,9 +44,10 @@ function AuthProvider({ children }) {
     await supabase.from('admin_users').update({ last_login_at: new Date().toISOString() }).eq('id', u.id);
     localStorage.setItem('admin_token', token);
     setUser(u);
+    logAction(u, 'login', 'session', null, { email: u.email });
   }
 
-  function logout() { localStorage.removeItem('admin_token'); setUser(null); }
+  function logout() { if (user) logAction(user, 'logout', 'session', null, { email: user.email }); localStorage.removeItem('admin_token'); setUser(null); }
 
   if (loading) return <div className="h-screen flex items-center justify-center"><Spinner /></div>;
   return <AuthCtx.Provider value={{ user, login, logout }}>{children}</AuthCtx.Provider>;
@@ -127,6 +129,7 @@ function AppInner() {
           <SidebarItem icon={<BookOpen size={20} />} label="Предмети" active={activeMenu === 'subjects'} onClick={() => setActiveMenu('subjects')} />
           {canSeeUsers && <SidebarItem icon={<ShieldCheck size={20} />} label="Користувачі (Адмін)" active={activeMenu === 'users'} onClick={() => setActiveMenu('users')} />}
           {(user.role === 'superadmin' || user.role === 'support') && <SidebarItem icon={<MessageSquare size={20} />} label="Запити користувачів" active={activeMenu === 'requests'} onClick={() => setActiveMenu('requests')} />}
+          {user.role === 'superadmin' && <SidebarItem icon={<ScrollText size={20} />} label="Логі" active={activeMenu === 'logs'} onClick={() => setActiveMenu('logs')} />}
           <SidebarItem icon={<Settings size={20} />} label="Налаштування" active={activeMenu === 'settings'} onClick={() => setActiveMenu('settings')} />
         </nav>
         <div className="p-4 border-t border-slate-100 space-y-2">
@@ -141,6 +144,7 @@ function AppInner() {
             {activeMenu === 'subjects' && 'Управління контентом'}
             {activeMenu === 'users' && 'Керування доступом'}
             {activeMenu === 'requests' && 'Служба підтримки'}
+            {activeMenu === 'logs' && 'Логі дій адміністрації'}
             {activeMenu === 'settings' && 'Налаштування'}
           </h2>
           <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">{user.name?.[0] || 'А'}</div>
@@ -150,6 +154,7 @@ function AppInner() {
           {activeMenu === 'subjects' && <SubjectsView user={user} />}
           {activeMenu === 'users' && canSeeUsers && <UsersAdminView />}
           {activeMenu === 'requests' && <SupportRequestsView />}
+          {activeMenu === 'logs' && user.role === 'superadmin' && <AdminLogsView />}
           {activeMenu === 'settings' && <Empty text="Налаштування у розробці" />}
         </div></div>
       </main>
@@ -596,6 +601,7 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
 // GENERIC TABLE (questions from any table)
 // ══════════════════════════════════════════════════════════════════════════
 function GenericTable({ sid, tag, table, textKey, folderId }) {
+  const { user } = useAuth();
   const canEdit = useCanEdit();
   const [items, setItems] = useState([]); const [loading, setLoading] = useState(true);
   const [showImport, setShowImport] = useState(false);
@@ -636,7 +642,7 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
             {canEdit && <td className="px-6 py-4 flex justify-end gap-1 opacity-0 group-hover:opacity-100">
               {FormComponent && <Abtn icon={<Edit size={16} />} onClick={() => { setFormId(q.id); setShowImport(false); }} />}
               <MoveButton question={q} fromTable={table} sid={sid} onMoved={load} />
-              <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from(table).update({ is_active: false }).eq('id', q.id); load(); }} />
+              <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from(table).update({ is_active: false }).eq('id', q.id); logAction(user, 'deactivate', table.replace('_questions',''), q.id, { text: q[textKey]?.substring(0,80) }); load(); }} />
             </td>}
           </tr>
         ))}
@@ -890,6 +896,90 @@ function StatusBadge({ status }) {
   if (status === 'pending') return <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold text-xs flex items-center gap-1.5 w-max"><Activity size={14} /> В роботі</span>;
   if (status === 'resolved') return <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-xs flex items-center gap-1.5 w-max"><CheckCircle2 size={14} /> Вирішено</span>;
   return <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 font-semibold text-xs flex items-center gap-1.5 w-max"><Ban size={14} /> Не релевантно</span>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN LOGS (superadmin only)
+// ══════════════════════════════════════════════════════════════════════════
+function AdminLogsView() {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [filterUser, setFilterUser] = useState('all');
+  const [filterAction, setFilterAction] = useState('all');
+  const perPage = 25;
+
+  async function load() {
+    setLoading(true);
+    let q = supabase.from('admin_logs').select('*').order('created_at', { ascending: false }).limit(500);
+    if (filterUser !== 'all') q = q.eq('user_email', filterUser);
+    if (filterAction !== 'all') q = q.eq('action', filterAction);
+    const { data } = await q;
+    setLogs(data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); setPage(1); }, [filterUser, filterAction]);
+
+  const actionLabels = { login: 'Вхід', logout: 'Вихід', create: 'Створення', update: 'Оновлення', delete: 'Видалення', deactivate: 'Деактивація', move: 'Переміщення', import: 'Імпорт', status_change: 'Зміна статусу' };
+  const actionColors = { login: 'bg-blue-50 text-blue-700', logout: 'bg-slate-100 text-slate-600', create: 'bg-emerald-50 text-emerald-700', update: 'bg-amber-50 text-amber-700', delete: 'bg-red-50 text-red-700', deactivate: 'bg-red-50 text-red-600', move: 'bg-indigo-50 text-indigo-700', import: 'bg-purple-50 text-purple-700', status_change: 'bg-teal-50 text-teal-700' };
+  const entityLabels = { question: 'Питання', blitz: 'Бліц', pairs: 'Пари', gallery: 'Галерея', seven: 'Сімка', exam: 'Іспит', topic: 'Тема', admin_user: 'Адмін', support_request: 'Запит', folder: 'Папка', session: 'Сесія', logical_pairs: 'Пари' };
+
+  const uniqueUsers = [...new Set(logs.map(l => l.user_email))];
+  const uniqueActions = [...new Set(logs.map(l => l.action))];
+  const total = logs.length;
+  const totalPages = Math.ceil(total / perPage) || 1;
+  const pageItems = logs.slice((page - 1) * perPage, page * perPage);
+
+  if (loading) return <Spinner />;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4">
+        <div><h3 className="text-xl font-bold text-slate-800">Логі дій</h3><p className="text-sm text-slate-500 mt-1">Усі дії адміністраторів в системі</p></div>
+        <div className="flex gap-3">
+          <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="bg-white border border-slate-200 text-slate-700 py-2 px-3 rounded-xl text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">Всі користувачі</option>
+            {uniqueUsers.map(u => <option key={u} value={u}>{u}</option>)}
+          </select>
+          <select value={filterAction} onChange={e => setFilterAction(e.target.value)} className="bg-white border border-slate-200 text-slate-700 py-2 px-3 rounded-xl text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">Всі дії</option>
+            {uniqueActions.map(a => <option key={a} value={a}>{actionLabels[a] || a}</option>)}
+          </select>
+          <button onClick={load} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-medium text-slate-600">Оновити</button>
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[800px]">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
+              <tr><th className="px-5 py-3 font-medium">Час</th><th className="px-5 py-3 font-medium">Користувач</th><th className="px-5 py-3 font-medium">Дія</th><th className="px-5 py-3 font-medium">Об'єкт</th><th className="px-5 py-3 font-medium">Деталі</th></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-sm">
+              {pageItems.map(log => (
+                <tr key={log.id} className="hover:bg-slate-50/80">
+                  <td className="px-5 py-3 text-slate-500 text-xs whitespace-nowrap">{new Date(log.created_at).toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                  <td className="px-5 py-3"><div className="font-medium text-slate-800 text-xs">{log.user_name}</div><div className="text-slate-400 text-xs">{log.user_email}</div></td>
+                  <td className="px-5 py-3"><span className={`px-2 py-0.5 rounded text-xs font-semibold ${actionColors[log.action] || 'bg-slate-100 text-slate-600'}`}>{actionLabels[log.action] || log.action}</span></td>
+                  <td className="px-5 py-3"><span className="text-xs text-slate-600">{entityLabels[log.entity_type] || log.entity_type}</span>{log.entity_id && <span className="text-xs text-slate-400 ml-1">#{log.entity_id.substring(0, 8)}</span>}</td>
+                  <td className="px-5 py-3 text-xs text-slate-500 max-w-[300px] truncate">{log.details?.text || log.details?.email || log.details?.count ? `${log.details.count} шт.` : JSON.stringify(log.details || {}).substring(0, 60)}</td>
+                </tr>
+              ))}
+              {!pageItems.length && <tr><td colSpan={5} className="px-5 py-8 text-center text-slate-400">Логів ще немає</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-4 bg-slate-50/50 rounded-b-xl flex items-center justify-between">
+          <span className="text-sm text-slate-500">{total > 0 ? (page - 1) * perPage + 1 : 0}–{Math.min(page * perPage, total)} з {total}</span>
+          <div className="flex gap-1.5">
+            <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-blue-600 disabled:opacity-50 bg-white shadow-sm"><ChevronLeft size={18} /></button>
+            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-blue-600 disabled:opacity-50 bg-white shadow-sm"><ChevronRight size={18} /></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════
