@@ -282,6 +282,7 @@ export default function ExcelImport({ formatTable, subjectId, topicTag, onImport
       ...item,
       subject_id: subjectId,
       topic_tag: topicTag || mapping[_topicName] || slugify(_topicName),
+      publish_status: 'draft',
       updated_at: new Date().toISOString(),
     }));
 

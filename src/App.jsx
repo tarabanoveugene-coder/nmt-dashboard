@@ -148,7 +148,10 @@ function AppInner() {
             {activeMenu === 'logs' && 'Логі дій адміністрації'}
             {activeMenu === 'settings' && 'Налаштування'}
           </h2>
-          <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">{user.name?.[0] || 'А'}</div>
+          <div className="flex items-center gap-3">
+            {canSeeUsers && <PublishButton user={user} />}
+            <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">{user.name?.[0] || 'А'}</div>
+          </div>
         </header>
         <div className="flex-1 overflow-auto p-8 bg-slate-50"><div className="max-w-7xl mx-auto">
           {activeMenu === 'dashboard' && <DashboardView />}
@@ -901,6 +904,77 @@ function StatusBadge({ status }) {
   if (status === 'pending') return <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold text-xs flex items-center gap-1.5 w-max"><Activity size={14} /> В роботі</span>;
   if (status === 'resolved') return <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-xs flex items-center gap-1.5 w-max"><CheckCircle2 size={14} /> Вирішено</span>;
   return <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 font-semibold text-xs flex items-center gap-1.5 w-max"><Ban size={14} /> Не релевантно</span>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PUBLISH BUTTON — "Оновити базу"
+// ══════════════════════════════════════════════════════════════════════════
+function PublishButton({ user }) {
+  const [drafts, setDrafts] = useState(0);
+  const [publishing, setPublishing] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const TABLES = ['questions', 'blitz_questions', 'logical_pairs_questions', 'gallery_questions', 'seven_questions', 'exam_questions'];
+
+  async function countDrafts() {
+    let total = 0;
+    for (const t of TABLES) {
+      const { count } = await supabase.from(t).select('*', { count: 'exact', head: true }).eq('publish_status', 'draft').eq('is_active', true);
+      total += (count || 0);
+    }
+    setDrafts(total);
+  }
+
+  useEffect(() => { countDrafts(); const interval = setInterval(countDrafts, 30000); return () => clearInterval(interval); }, []);
+
+  async function publish() {
+    setPublishing(true);
+    for (const t of TABLES) {
+      await supabase.from(t).update({ publish_status: 'published' }).eq('publish_status', 'draft').eq('is_active', true);
+    }
+    // Increment db version so mobile app knows to re-sync
+    const { data: ver } = await supabase.from('db_version').select('version').eq('id', 1).single();
+    const newVersion = (ver?.version || 0) + 1;
+    await supabase.from('db_version').update({ version: newVersion, published_at: new Date().toISOString(), published_by: user.id }).eq('id', 1);
+    logAction(user, 'publish', 'database', null, { drafts_published: drafts, new_version: newVersion });
+    setPublishing(false);
+    setShowConfirm(false);
+    setDrafts(0);
+  }
+
+  if (drafts === 0) return (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-medium">
+      <Check size={14} /> База актуальна
+    </div>
+  );
+
+  return (
+    <>
+      <button onClick={() => setShowConfirm(true)} className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium shadow-sm transition-colors relative">
+        <Upload size={16} /> Оновити базу
+        <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">{drafts}</span>
+      </button>
+      {showConfirm && <>
+        <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setShowConfirm(false)} />
+        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 z-50 w-full max-w-md space-y-4">
+          <h3 className="text-lg font-bold text-slate-800">Оновити базу додатку?</h3>
+          <p className="text-sm text-slate-600">
+            <strong>{drafts}</strong> нових/змінених питань будуть опубліковані та стануть доступні користувачам мобільного додатку.
+          </p>
+          <div className="bg-amber-50 p-3 rounded-lg text-sm text-amber-800">
+            Після публікації додаток автоматично завантажить оновлену базу при наступному запуску.
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button onClick={() => setShowConfirm(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">Скасувати</button>
+            <button onClick={publish} disabled={publishing} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium disabled:opacity-50 shadow-sm">
+              {publishing ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+              {publishing ? 'Публікація...' : 'Опублікувати'}
+            </button>
+          </div>
+        </div>
+      </>}
+    </>
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════
