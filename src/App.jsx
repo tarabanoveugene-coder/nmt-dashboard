@@ -459,7 +459,7 @@ function DrillDown({ subject, user }) {
     ? FORMATS.filter(f => user.allowed_formats.includes(f.id))
     : FORMATS;
 
-  const level = !fmt ? 'formats' : fmt.isExam ? (folder ? 'exam-questions' : 'exam-folders') : (!topic ? 'topics' : 'questions');
+  const level = !fmt ? 'formats' : fmt.id === 'express' ? 'express-all' : fmt.isExam ? (folder ? 'exam-questions' : 'exam-folders') : (!topic ? 'topics' : 'questions');
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 min-h-[600px] flex flex-col">
@@ -473,12 +473,13 @@ function DrillDown({ subject, user }) {
         <div className="flex items-center gap-4">
           {(fmt || topic || folder) && <button onClick={() => { if (topic) setTopic(null); else if (folder) setFolder(null); else setFmt(null); }} className="p-2 -ml-2 rounded-lg text-slate-400 hover:bg-slate-100"><ArrowLeft size={20} /></button>}
           <h2 className="text-2xl font-bold text-slate-800">
-            {level === 'formats' && 'Оберіть формат'}{level === 'topics' && 'Оберіть тему'}{level === 'questions' && 'База питань'}{level === 'exam-folders' && 'Папки іспиту'}{level === 'exam-questions' && 'Питання іспиту'}
+            {level === 'formats' && 'Оберіть формат'}{level === 'topics' && 'Оберіть тему'}{level === 'questions' && 'База питань'}{level === 'express-all' && 'Експрес — усі питання'}{level === 'exam-folders' && 'Папки іспиту'}{level === 'exam-questions' && 'Питання іспиту'}
           </h2>
         </div>
       </div>
       <div className="p-6 flex-1 bg-slate-50/50">
         {level === 'formats' && <FormatsGrid subjectId={subject.id} formats={visibleFormats} onSelect={setFmt} />}
+        {level === 'express-all' && <ExpressAllView sid={subject.id} />}
         {level === 'topics' && <TopicsTable subjectId={subject.id} formatTable={fmt.table} onSelect={setTopic} />}
         {level === 'questions' && fmt.id === 'pairs' && <GenericTable sid={subject.id} tag={topic.tag} table="logical_pairs_questions" textKey="instruction" />}
         {level === 'questions' && fmt.id === 'blitz' && <GenericTable sid={subject.id} tag={topic.tag} table="blitz_questions" textKey="text" />}
@@ -904,6 +905,73 @@ function StatusBadge({ status }) {
   if (status === 'pending') return <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold text-xs flex items-center gap-1.5 w-max"><Activity size={14} /> В роботі</span>;
   if (status === 'resolved') return <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-xs flex items-center gap-1.5 w-max"><CheckCircle2 size={14} /> Вирішено</span>;
   return <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 font-semibold text-xs flex items-center gap-1.5 w-max"><Ban size={14} /> Не релевантно</span>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// EXPRESS ALL — shows questions from ALL format tables
+// ══════════════════════════════════════════════════════════════════════════
+function ExpressAllView({ sid }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterFormat, setFilterFormat] = useState('all');
+
+  async function load() {
+    setLoading(true);
+    const all = [];
+
+    const [q, b, p, g, s] = await Promise.all([
+      supabase.from('questions').select('id, question_text, topic_tag, difficulty, format, is_active, publish_status').eq('subject_id', sid).eq('is_active', true).order('updated_at', { ascending: false }),
+      supabase.from('blitz_questions').select('id, text, topic_tag, difficulty, is_active, publish_status').eq('subject_id', sid).eq('is_active', true).order('updated_at', { ascending: false }),
+      supabase.from('logical_pairs_questions').select('id, instruction, topic_tag, difficulty, is_active, publish_status').eq('subject_id', sid).eq('is_active', true).order('updated_at', { ascending: false }),
+      supabase.from('gallery_questions').select('id, question_text, topic_tag, difficulty, is_active, publish_status').eq('subject_id', sid).eq('is_active', true).order('updated_at', { ascending: false }),
+      supabase.from('seven_questions').select('id, text, topic_tag, difficulty, is_active, publish_status').eq('subject_id', sid).eq('is_active', true).order('updated_at', { ascending: false }),
+    ]);
+
+    (q.data || []).forEach(r => all.push({ ...r, _format: 'Тест', _text: r.question_text, _table: 'questions' }));
+    (b.data || []).forEach(r => all.push({ ...r, _format: 'Бліц', _text: r.text, _table: 'blitz_questions' }));
+    (p.data || []).forEach(r => all.push({ ...r, _format: 'Пари', _text: r.instruction, _table: 'logical_pairs_questions' }));
+    (g.data || []).forEach(r => all.push({ ...r, _format: 'Галерея', _text: r.question_text, _table: 'gallery_questions' }));
+    (s.data || []).forEach(r => all.push({ ...r, _format: 'Сімка', _text: r.text, _table: 'seven_questions' }));
+
+    setItems(all);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [sid]);
+
+  const fmtColors = { 'Тест': 'bg-blue-50 text-blue-700', 'Бліц': 'bg-orange-50 text-orange-700', 'Пари': 'bg-indigo-50 text-indigo-700', 'Галерея': 'bg-purple-50 text-purple-700', 'Сімка': 'bg-teal-50 text-teal-700' };
+  const statusColors = { draft: 'bg-amber-50 text-amber-700 border-amber-200', published: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+
+  const filtered = filterFormat === 'all' ? items : items.filter(i => i._format === filterFormat);
+
+  if (loading) return <Spinner />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-slate-500">Всього: <strong>{items.length}</strong> питань з усіх форматів</span>
+        <div className="flex items-center gap-3">
+          <select value={filterFormat} onChange={e => setFilterFormat(e.target.value)} className="appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-3 pr-8 rounded-xl text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">Всі формати ({items.length})</option>
+            {Object.keys(fmtColors).map(f => { const c = items.filter(i => i._format === f).length; return <option key={f} value={f}>{f} ({c})</option>; })}
+          </select>
+        </div>
+      </div>
+
+      <Table heads={['#', 'Питання', 'Формат', 'Статус', 'Тема']}>
+        {filtered.map((q, i) => (
+          <tr key={q.id + q._table} className="hover:bg-slate-50/80 group">
+            <td className="px-6 py-3 text-slate-400 text-xs text-center">{i + 1}</td>
+            <td className="px-6 py-3 font-medium text-slate-800 max-w-lg"><div className="line-clamp-1">{q._text || '—'}</div></td>
+            <td className="px-6 py-3"><span className={`px-2.5 py-0.5 rounded text-xs font-semibold ${fmtColors[q._format]}`}>{q._format}</span></td>
+            <td className="px-6 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium border ${statusColors[q.publish_status] || statusColors.published}`}>{q.publish_status === 'draft' ? 'Чернетка' : 'Опубліковано'}</span></td>
+            <td className="px-6 py-3 text-xs text-slate-500">{q.topic_tag || '—'}</td>
+          </tr>
+        ))}
+      </Table>
+      {!filtered.length && <Empty text="Немає питань" />}
+    </div>
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════
