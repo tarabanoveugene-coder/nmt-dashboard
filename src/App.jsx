@@ -943,11 +943,11 @@ function AdminLogsView() {
       <div className="flex items-center justify-between gap-4">
         <div><h3 className="text-xl font-bold text-slate-800">Логі дій</h3><p className="text-sm text-slate-500 mt-1">Усі дії адміністраторів в системі</p></div>
         <div className="flex items-center gap-3">
-          <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="bg-white border border-slate-200 text-slate-700 py-2 px-3 rounded-xl text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-4 pr-9 rounded-xl text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[position:right_0.75rem_center]">
             <option value="all">Всі користувачі</option>
             {uniqueUsers.map(u => <option key={u} value={u}>{u}</option>)}
           </select>
-          <select value={filterAction} onChange={e => setFilterAction(e.target.value)} className="bg-white border border-slate-200 text-slate-700 py-2 px-3 rounded-xl text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <select value={filterAction} onChange={e => setFilterAction(e.target.value)} className="appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-4 pr-9 rounded-xl text-sm font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-no-repeat bg-[position:right_0.75rem_center]">
             <option value="all">Всі дії</option>
             {uniqueActions.map(a => <option key={a} value={a}>{actionLabels[a] || a}</option>)}
           </select>
