@@ -128,6 +128,7 @@ function AppInner() {
         <nav className="flex-1 px-4 space-y-2 mt-4">
           <SidebarItem icon={<LayoutDashboard size={20} />} label="Дашборд" active={activeMenu === 'dashboard'} onClick={() => setActiveMenu('dashboard')} />
           <SidebarItem icon={<BookOpen size={20} />} label="Предмети" active={activeMenu === 'subjects'} onClick={() => setActiveMenu('subjects')} />
+          {(user.role === 'superadmin' || user.role === 'moderator') && <SidebarItem icon={<Layers size={20} />} label="Бібліотека" active={activeMenu === 'library'} onClick={() => setActiveMenu('library')} />}
           {canSeeUsers && <SidebarItem icon={<ShieldCheck size={20} />} label="Користувачі (Адмін)" active={activeMenu === 'users'} onClick={() => setActiveMenu('users')} />}
           {(user.role === 'superadmin' || user.role === 'support') && <SidebarItem icon={<MessageSquare size={20} />} label="Запити користувачів" active={activeMenu === 'requests'} onClick={() => setActiveMenu('requests')} />}
           {user.role === 'superadmin' && <SidebarItem icon={<ScrollText size={20} />} label="Логі" active={activeMenu === 'logs'} onClick={() => setActiveMenu('logs')} />}
@@ -143,6 +144,7 @@ function AppInner() {
           <h2 className="text-xl font-semibold">
             {activeMenu === 'dashboard' && 'Огляд та Аналітика'}
             {activeMenu === 'subjects' && 'Управління контентом'}
+            {activeMenu === 'library' && 'Бібліотека питань'}
             {activeMenu === 'users' && 'Керування доступом'}
             {activeMenu === 'requests' && 'Служба підтримки'}
             {activeMenu === 'logs' && 'Логі дій адміністрації'}
@@ -156,6 +158,7 @@ function AppInner() {
         <div className="flex-1 overflow-auto p-8 bg-slate-50"><div className="max-w-7xl mx-auto">
           {activeMenu === 'dashboard' && <DashboardView />}
           {activeMenu === 'subjects' && <SubjectsView user={user} />}
+          {activeMenu === 'library' && <LibraryView />}
           {activeMenu === 'users' && canSeeUsers && <UsersAdminView />}
           {activeMenu === 'requests' && <SupportRequestsView />}
           {activeMenu === 'logs' && user.role === 'superadmin' && <AdminLogsView />}
@@ -905,6 +908,132 @@ function StatusBadge({ status }) {
   if (status === 'pending') return <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold text-xs flex items-center gap-1.5 w-max"><Activity size={14} /> В роботі</span>;
   if (status === 'resolved') return <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-xs flex items-center gap-1.5 w-max"><CheckCircle2 size={14} /> Вирішено</span>;
   return <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 font-semibold text-xs flex items-center gap-1.5 w-max"><Ban size={14} /> Не релевантно</span>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// LIBRARY VIEW — all questions, manage topics, filter, reassign
+// ══════════════════════════════════════════════════════════════════════════
+function LibraryView() {
+  const { user } = useAuth();
+  const [items, setItems] = useState([]);
+  const [topics, setTopics] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterFormat, setFilterFormat] = useState('all');
+  const [filterTopic, setFilterTopic] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [page, setPage] = useState(1);
+  const perPage = 20;
+  const sid = 'history_ua';
+
+  const fmtColors = { 'Тест': 'bg-blue-50 text-blue-700', 'Бліц': 'bg-orange-50 text-orange-700', 'Пари': 'bg-indigo-50 text-indigo-700', 'Галерея': 'bg-purple-50 text-purple-700', 'Сімка': 'bg-teal-50 text-teal-700' };
+
+  async function load() {
+    setLoading(true);
+    const all = [];
+    const [q, b, p, g, s, t] = await Promise.all([
+      supabase.from('questions').select('*').eq('subject_id', sid).eq('is_active', true).order('updated_at', { ascending: false }),
+      supabase.from('blitz_questions').select('*').eq('subject_id', sid).eq('is_active', true).order('updated_at', { ascending: false }),
+      supabase.from('logical_pairs_questions').select('*').eq('subject_id', sid).eq('is_active', true).order('updated_at', { ascending: false }),
+      supabase.from('gallery_questions').select('*').eq('subject_id', sid).eq('is_active', true).order('updated_at', { ascending: false }),
+      supabase.from('seven_questions').select('*').eq('subject_id', sid).eq('is_active', true).order('updated_at', { ascending: false }),
+      supabase.from('topics').select('tag, name').eq('subject_id', sid).eq('is_active', true).order('sort_order'),
+    ]);
+    (q.data || []).forEach(r => all.push({ ...r, _format: 'Тест', _text: r.question_text, _table: 'questions' }));
+    (b.data || []).forEach(r => all.push({ ...r, _format: 'Бліц', _text: r.text, _table: 'blitz_questions' }));
+    (p.data || []).forEach(r => all.push({ ...r, _format: 'Пари', _text: r.instruction, _table: 'logical_pairs_questions' }));
+    (g.data || []).forEach(r => all.push({ ...r, _format: 'Галерея', _text: r.question_text, _table: 'gallery_questions' }));
+    (s.data || []).forEach(r => all.push({ ...r, _format: 'Сімка', _text: r.text, _table: 'seven_questions' }));
+    setItems(all);
+    setTopics(t.data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [filterFormat, filterTopic, filterStatus]);
+
+  async function changeTopic(item, newTag) {
+    await supabase.from(item._table).update({ topic_tag: newTag, updated_at: new Date().toISOString() }).eq('id', item.id);
+    logAction(user, 'update', item._table.replace('_questions', ''), item.id, { action: 'change_topic', new_topic: newTag });
+    load();
+  }
+
+  async function deactivate(item) {
+    if (!confirm('Деактивувати?')) return;
+    await supabase.from(item._table).update({ is_active: false }).eq('id', item.id);
+    logAction(user, 'deactivate', item._table.replace('_questions', ''), item.id, { text: item._text?.substring(0, 80) });
+    load();
+  }
+
+  const filtered = items
+    .filter(i => filterFormat === 'all' || i._format === filterFormat)
+    .filter(i => filterTopic === 'all' || i.topic_tag === filterTopic)
+    .filter(i => filterStatus === 'all' || i.publish_status === filterStatus);
+  const total = filtered.length;
+  const totalPages = Math.ceil(total / perPage) || 1;
+  const pageItems = filtered.slice((page - 1) * perPage, page * perPage);
+
+  if (loading) return <Spinner />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <span className="text-sm text-slate-500">Всього: <strong>{items.length}</strong></span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select value={filterFormat} onChange={e => setFilterFormat(e.target.value)} className="appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-3 pr-8 rounded-lg text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">Всі формати</option>
+            {Object.keys(fmtColors).map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+          <select value={filterTopic} onChange={e => setFilterTopic(e.target.value)} className="appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-3 pr-8 rounded-lg text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">Всі теми</option>
+            <option value="">Без теми</option>
+            {topics.map(t => <option key={t.tag} value={t.tag}>{t.name}</option>)}
+          </select>
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-3 pr-8 rounded-lg text-xs font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">Всі статуси</option>
+            <option value="draft">Чернетки</option>
+            <option value="published">Опубліковані</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[900px]">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
+              <tr><th className="px-4 py-3 font-medium w-10">#</th><th className="px-4 py-3 font-medium">Питання</th><th className="px-4 py-3 font-medium w-20">Формат</th><th className="px-4 py-3 font-medium w-24">Статус</th><th className="px-4 py-3 font-medium w-48">Тема</th><th className="px-4 py-3 font-medium w-16 text-right">Дії</th></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-sm">
+              {pageItems.map((q, i) => (
+                <tr key={q.id + q._table} className="hover:bg-slate-50/80 group">
+                  <td className="px-4 py-2.5 text-slate-400 text-xs">{(page - 1) * perPage + i + 1}</td>
+                  <td className="px-4 py-2.5 font-medium text-slate-800"><div className="line-clamp-1 max-w-md">{q._text || '—'}</div></td>
+                  <td className="px-4 py-2.5"><span className={`px-2 py-0.5 rounded text-xs font-semibold ${fmtColors[q._format]}`}>{q._format}</span></td>
+                  <td className="px-4 py-2.5"><span className={`px-2 py-0.5 rounded text-xs font-medium border ${q.publish_status === 'draft' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{q.publish_status === 'draft' ? 'Чернетка' : 'Опубл.'}</span></td>
+                  <td className="px-4 py-2.5">
+                    <select value={q.topic_tag || ''} onChange={e => changeTopic(q, e.target.value)} className="bg-white border border-slate-200 text-slate-700 py-1 px-2 rounded text-xs w-full cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500">
+                      <option value="">— Без теми —</option>
+                      {topics.map(t => <option key={t.tag} value={t.tag}>{t.name}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <Abtn icon={<Trash2 size={14} />} danger onClick={() => deactivate(q)} />
+                  </td>
+                </tr>
+              ))}
+              {!pageItems.length && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Немає питань</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-3 bg-slate-50/50 rounded-b-xl flex items-center justify-between">
+          <span className="text-xs text-slate-500">{total > 0 ? (page - 1) * perPage + 1 : 0}–{Math.min(page * perPage, total)} з {total}</span>
+          <div className="flex gap-1">
+            <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="p-1 rounded border border-slate-200 text-slate-500 hover:text-blue-600 disabled:opacity-50 bg-white shadow-sm"><ChevronLeft size={16} /></button>
+            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="p-1 rounded border border-slate-200 text-slate-500 hover:text-blue-600 disabled:opacity-50 bg-white shadow-sm"><ChevronRight size={16} /></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════
