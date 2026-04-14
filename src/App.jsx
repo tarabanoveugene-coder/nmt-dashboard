@@ -1080,7 +1080,7 @@ function LibraryView({ sid }) {
   const [filterTopic, setFilterTopic] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [page, setPage] = useState(1);
-  const perPage = 20;
+  const perPage = 100;
 
   const fmtColors = { 'Тест': 'bg-blue-50 text-blue-700', 'Бліц': 'bg-orange-50 text-orange-700', 'Пари': 'bg-indigo-50 text-indigo-700', 'Галерея': 'bg-purple-50 text-purple-700', 'Сімка': 'bg-teal-50 text-teal-700' };
 
