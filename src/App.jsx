@@ -75,6 +75,7 @@ const FORMATS = [
   { id: 'gallery', name: 'Галерея', desc: 'Питання на основі зображень', table: 'gallery_questions' },
   { id: 'sevens', name: 'Сімки (3 з 7)', desc: 'Вибір 3 правильних із 7', table: 'seven_questions' },
   { id: 'exam', name: 'Іспит на максимум', desc: 'Комбіновані питання у папках', table: 'exam_questions', isExam: true },
+  { id: 'library', name: 'Бібліотека', desc: 'Усі питання — менеджмент та розподіл по темах', table: null, isLibrary: true },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -128,7 +129,6 @@ function AppInner() {
         <nav className="flex-1 px-4 space-y-2 mt-4">
           <SidebarItem icon={<LayoutDashboard size={20} />} label="Дашборд" active={activeMenu === 'dashboard'} onClick={() => setActiveMenu('dashboard')} />
           <SidebarItem icon={<BookOpen size={20} />} label="Предмети" active={activeMenu === 'subjects'} onClick={() => setActiveMenu('subjects')} />
-          {(user.role === 'superadmin' || user.role === 'moderator') && <SidebarItem icon={<Layers size={20} />} label="Бібліотека" active={activeMenu === 'library'} onClick={() => setActiveMenu('library')} />}
           {canSeeUsers && <SidebarItem icon={<ShieldCheck size={20} />} label="Користувачі (Адмін)" active={activeMenu === 'users'} onClick={() => setActiveMenu('users')} />}
           {(user.role === 'superadmin' || user.role === 'support') && <SidebarItem icon={<MessageSquare size={20} />} label="Запити користувачів" active={activeMenu === 'requests'} onClick={() => setActiveMenu('requests')} />}
           {user.role === 'superadmin' && <SidebarItem icon={<ScrollText size={20} />} label="Логі" active={activeMenu === 'logs'} onClick={() => setActiveMenu('logs')} />}
@@ -144,7 +144,6 @@ function AppInner() {
           <h2 className="text-xl font-semibold">
             {activeMenu === 'dashboard' && 'Огляд та Аналітика'}
             {activeMenu === 'subjects' && 'Управління контентом'}
-            {activeMenu === 'library' && 'Бібліотека питань'}
             {activeMenu === 'users' && 'Керування доступом'}
             {activeMenu === 'requests' && 'Служба підтримки'}
             {activeMenu === 'logs' && 'Логі дій адміністрації'}
@@ -158,7 +157,6 @@ function AppInner() {
         <div className="flex-1 overflow-auto p-8 bg-slate-50"><div className="max-w-7xl mx-auto">
           {activeMenu === 'dashboard' && <DashboardView />}
           {activeMenu === 'subjects' && <SubjectsView user={user} />}
-          {activeMenu === 'library' && <LibraryView />}
           {activeMenu === 'users' && canSeeUsers && <UsersAdminView />}
           {activeMenu === 'requests' && <SupportRequestsView />}
           {activeMenu === 'logs' && user.role === 'superadmin' && <AdminLogsView />}
@@ -462,7 +460,7 @@ function DrillDown({ subject, user }) {
     ? FORMATS.filter(f => user.allowed_formats.includes(f.id))
     : FORMATS;
 
-  const level = !fmt ? 'formats' : fmt.id === 'express' ? 'express-all' : fmt.isExam ? (folder ? 'exam-questions' : 'exam-folders') : (!topic ? 'topics' : 'questions');
+  const level = !fmt ? 'formats' : fmt.isLibrary ? 'library' : fmt.id === 'express' ? 'express-all' : fmt.isExam ? (folder ? 'exam-questions' : 'exam-folders') : (!topic ? 'topics' : 'questions');
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 min-h-[600px] flex flex-col">
@@ -476,12 +474,13 @@ function DrillDown({ subject, user }) {
         <div className="flex items-center gap-4">
           {(fmt || topic || folder) && <button onClick={() => { if (topic) setTopic(null); else if (folder) setFolder(null); else setFmt(null); }} className="p-2 -ml-2 rounded-lg text-slate-400 hover:bg-slate-100"><ArrowLeft size={20} /></button>}
           <h2 className="text-2xl font-bold text-slate-800">
-            {level === 'formats' && 'Оберіть формат'}{level === 'topics' && 'Оберіть тему'}{level === 'questions' && 'База питань'}{level === 'express-all' && 'Експрес — усі питання'}{level === 'exam-folders' && 'Папки іспиту'}{level === 'exam-questions' && 'Питання іспиту'}
+            {level === 'formats' && 'Оберіть формат'}{level === 'topics' && 'Оберіть тему'}{level === 'questions' && 'База питань'}{level === 'express-all' && 'Експрес — усі питання'}{level === 'library' && 'Бібліотека питань'}{level === 'exam-folders' && 'Папки іспиту'}{level === 'exam-questions' && 'Питання іспиту'}
           </h2>
         </div>
       </div>
       <div className="p-6 flex-1 bg-slate-50/50">
         {level === 'formats' && <FormatsGrid subjectId={subject.id} formats={visibleFormats} onSelect={setFmt} />}
+        {level === 'library' && <LibraryView sid={subject.id} />}
         {level === 'express-all' && <ExpressAllView sid={subject.id} />}
         {level === 'topics' && <TopicsTable subjectId={subject.id} formatTable={fmt.table} onSelect={setTopic} />}
         {level === 'questions' && fmt.id === 'pairs' && <GenericTable sid={subject.id} tag={topic.tag} table="logical_pairs_questions" textKey="instruction" />}
@@ -510,10 +509,15 @@ function FormatsGrid({ subjectId, formats, onSelect }) {
         const { count } = await supabase.from(f.table).select('*', { count: 'exact', head: true }).eq('subject_id', subjectId).eq('is_active', true);
         return [f.id, count || 0];
       }),
-      // Express = sum of ALL tables (except exam)
+      // Express + Library = sum of ALL tables (except exam)
       (async () => {
         const results = await Promise.all(allTables.map(t => supabase.from(t).select('*', { count: 'exact', head: true }).eq('subject_id', subjectId).eq('is_active', true)));
-        return ['express', results.reduce((sum, r) => sum + (r.count || 0), 0)];
+        const total = results.reduce((sum, r) => sum + (r.count || 0), 0);
+        return ['express', total];
+      })(),
+      (async () => {
+        const results = await Promise.all(allTables.map(t => supabase.from(t).select('*', { count: 'exact', head: true }).eq('subject_id', subjectId).eq('is_active', true)));
+        return ['library', results.reduce((sum, r) => sum + (r.count || 0), 0)];
       })(),
       // Exam
       ...formats.filter(f => f.isExam).map(async f => {
@@ -528,7 +532,7 @@ function FormatsGrid({ subjectId, formats, onSelect }) {
       {formats.map(f => (
         <div key={f.id} onClick={() => onSelect(f)} className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-blue-400 hover:shadow-md cursor-pointer transition-all group flex flex-col h-full">
           <div className="flex items-start justify-between mb-3">
-            <div className={`p-3 rounded-xl transition-colors ${f.isExam ? 'bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-white' : 'bg-indigo-50 text-indigo-600 group-hover:bg-blue-600 group-hover:text-white'}`}>{f.isExam ? <Trophy size={24} /> : <Layers size={24} />}</div>
+            <div className={`p-3 rounded-xl transition-colors ${f.isLibrary ? 'bg-slate-100 text-slate-600 group-hover:bg-slate-700 group-hover:text-white' : f.isExam ? 'bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-white' : 'bg-indigo-50 text-indigo-600 group-hover:bg-blue-600 group-hover:text-white'}`}>{f.isLibrary ? <FolderOpen size={24} /> : f.isExam ? <Trophy size={24} /> : <Layers size={24} />}</div>
             <ChevronRight className="text-slate-300 group-hover:text-blue-500" />
           </div>
           <h3 className="font-semibold text-slate-800 text-lg group-hover:text-blue-700 mb-1">{f.name}</h3>
@@ -913,7 +917,7 @@ function StatusBadge({ status }) {
 // ══════════════════════════════════════════════════════════════════════════
 // LIBRARY VIEW — all questions, manage topics, filter, reassign
 // ══════════════════════════════════════════════════════════════════════════
-function LibraryView() {
+function LibraryView({ sid }) {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [topics, setTopics] = useState([]);
@@ -923,7 +927,6 @@ function LibraryView() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [page, setPage] = useState(1);
   const perPage = 20;
-  const sid = 'history_ua';
 
   const fmtColors = { 'Тест': 'bg-blue-50 text-blue-700', 'Бліц': 'bg-orange-50 text-orange-700', 'Пари': 'bg-indigo-50 text-indigo-700', 'Галерея': 'bg-purple-50 text-purple-700', 'Сімка': 'bg-teal-50 text-teal-700' };
 
