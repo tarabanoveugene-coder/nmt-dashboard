@@ -36,15 +36,18 @@ const TEMPLATES = {
     name: 'Бліц (Так/Ні)',
     headers: ['Тема', 'Твердження', 'Правильна відповідь (ТАК/НІ)', 'Пояснення', 'Складність (1/2/3)', 'URL зображення'],
     example: ['Київська Русь', 'Київську Русь заснував Олег', 'ТАК', 'Олег об\'єднав Новгород і Київ у 882 році', '1', ''],
-    parse: (row) => ({
-      _topicName: (row['Тема'] || '').toString().trim(),
-      text: row['Твердження'],
-      is_true: ['так', 'true', '1', 'yes'].includes((row['Правильна відповідь (ТАК/НІ)'] || '').toString().toLowerCase().trim()),
-      explanation: row['Пояснення'] || '',
-      difficulty: parseInt(row['Складність (1/2/3)']) || 1,
-      image_url: row['URL зображення'] || null,
-      is_active: true,
-    }),
+    parse: (row) => {
+      const answer = (row['Правильна відповідь (ТАК/НІ)'] || row['Правда / Хиба'] || '').toString().toLowerCase().trim().replace(/[✓✗]/g, '').trim();
+      return {
+        _topicName: (row['Тема'] || row['Тема НМТ'] || '').toString().trim(),
+        text: row['Твердження'] || '',
+        is_true: ['так', 'true', '1', 'yes', 'правда'].includes(answer),
+        explanation: row['Пояснення'] || '',
+        difficulty: parseInt(row['Складність (1/2/3)']) || 1,
+        image_url: row['URL зображення'] || null,
+        is_active: true,
+      };
+    },
     validate: (item) => {
       if (!item._topicName) return 'Тема не вказана';
       if (!item.text) return 'Твердження порожнє';
