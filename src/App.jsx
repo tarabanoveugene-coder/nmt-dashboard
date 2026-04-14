@@ -474,9 +474,10 @@ function DrillDown({ subject, user }) {
         </div>
         <div className="flex items-center gap-4">
           {(fmt || topic || folder) && <button onClick={() => { if (topic) setTopic(null); else if (folder) setFolder(null); else setFmt(null); }} className="p-2 -ml-2 rounded-lg text-slate-400 hover:bg-slate-100"><ArrowLeft size={20} /></button>}
-          <h2 className="text-2xl font-bold text-slate-800">
+          <h2 className="text-2xl font-bold text-slate-800 flex-1">
             {level === 'formats' && 'Оберіть формат'}{level === 'topics' && 'Оберіть тему'}{level === 'questions' && 'База питань'}{level === 'express-all' && 'Експрес — усі питання'}{level === 'library' && 'Бібліотека питань'}{level === 'exam-folders' && 'Папки іспиту'}{level === 'exam-questions' && 'Питання іспиту'}
           </h2>
+          {level === 'formats' && <ExportDialog subjectId={subject.id} />}
         </div>
       </div>
       <div className="p-6 flex-1 bg-slate-50/50">
@@ -916,6 +917,107 @@ function StatusBadge({ status }) {
   if (status === 'pending') return <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold text-xs flex items-center gap-1.5 w-max"><Activity size={14} /> В роботі</span>;
   if (status === 'resolved') return <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-xs flex items-center gap-1.5 w-max"><CheckCircle2 size={14} /> Вирішено</span>;
   return <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 font-semibold text-xs flex items-center gap-1.5 w-max"><Ban size={14} /> Не релевантно</span>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// EXPORT DIALOG — select formats and topics to export
+// ══════════════════════════════════════════════════════════════════════════
+function ExportDialog({ subjectId }) {
+  const [open, setOpen] = useState(false);
+  const [topics, setTopics] = useState([]);
+  const [selectedFormats, setSelectedFormats] = useState(['questions', 'blitz_questions', 'logical_pairs_questions', 'gallery_questions', 'seven_questions']);
+  const [selectedTopics, setSelectedTopics] = useState([]);
+  const [allTopics, setAllTopics] = useState(true);
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    if (open) supabase.from('topics').select('tag, name').eq('subject_id', subjectId).eq('is_active', true).order('sort_order').then(({ data }) => setTopics(data || []));
+  }, [open, subjectId]);
+
+  const FORMAT_OPTIONS = [
+    { id: 'questions', label: 'Тест (4 варіанти)' },
+    { id: 'blitz_questions', label: 'Бліц (Так/Ні)' },
+    { id: 'logical_pairs_questions', label: 'Логічні пари' },
+    { id: 'gallery_questions', label: 'Галерея' },
+    { id: 'seven_questions', label: 'Сімки (3 з 7)' },
+  ];
+
+  function toggleFormat(id) { setSelectedFormats(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); }
+  function toggleTopic(tag) { setSelectedTopics(prev => prev.includes(tag) ? prev.filter(x => x !== tag) : [...prev, tag]); }
+
+  async function handleExport() {
+    setExporting(true);
+    if (allTopics) {
+      for (const fmt of selectedFormats) await exportQuestions(subjectId, null, fmt);
+    } else {
+      for (const tag of selectedTopics) {
+        for (const fmt of selectedFormats) await exportQuestions(subjectId, tag, fmt);
+      }
+    }
+    setExporting(false);
+    setOpen(false);
+  }
+
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors border border-slate-200">
+        <Download size={16} /> Експорт
+      </button>
+      {open && <>
+        <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setOpen(false)} />
+        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 w-full max-w-lg overflow-hidden">
+          <div className="p-6 border-b border-slate-100">
+            <h3 className="text-lg font-bold text-slate-800">Експорт питань</h3>
+            <p className="text-sm text-slate-500 mt-1">Оберіть формати та теми для вивантаження</p>
+          </div>
+          <div className="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
+            {/* Formats */}
+            <div>
+              <h4 className="text-sm font-medium text-slate-700 mb-3">Типи питань</h4>
+              <div className="space-y-2">
+                {FORMAT_OPTIONS.map(f => (
+                  <label key={f.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
+                    <input type="checkbox" checked={selectedFormats.includes(f.id)} onChange={() => toggleFormat(f.id)} className="w-4 h-4 text-blue-600 rounded border-slate-300" />
+                    <span className="text-sm text-slate-700">{f.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            {/* Topics */}
+            <div>
+              <h4 className="text-sm font-medium text-slate-700 mb-3">Теми</h4>
+              <label className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer mb-2">
+                <input type="radio" name="topicMode" checked={allTopics} onChange={() => setAllTopics(true)} className="w-4 h-4 text-blue-600 border-slate-300" />
+                <span className="text-sm text-slate-700 font-medium">Усі теми</span>
+              </label>
+              <label className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer mb-2">
+                <input type="radio" name="topicMode" checked={!allTopics} onChange={() => setAllTopics(false)} className="w-4 h-4 text-blue-600 border-slate-300" />
+                <span className="text-sm text-slate-700 font-medium">Обрані теми</span>
+              </label>
+              {!allTopics && (
+                <div className="ml-6 space-y-1 max-h-40 overflow-y-auto border border-slate-100 rounded-lg p-2">
+                  {topics.map(t => (
+                    <label key={t.tag} className="flex items-center gap-3 p-1.5 hover:bg-slate-50 rounded cursor-pointer">
+                      <input type="checkbox" checked={selectedTopics.includes(t.tag)} onChange={() => toggleTopic(t.tag)} className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300" />
+                      <span className="text-xs text-slate-700">{t.name}</span>
+                    </label>
+                  ))}
+                  {!topics.length && <span className="text-xs text-slate-400">Немає тем</span>}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+            <button onClick={() => setOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">Скасувати</button>
+            <button onClick={handleExport} disabled={exporting || selectedFormats.length === 0 || (!allTopics && selectedTopics.length === 0)} className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+              {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+              {exporting ? 'Експорт...' : 'Завантажити .xlsx'}
+            </button>
+          </div>
+        </div>
+      </>}
+    </>
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════
