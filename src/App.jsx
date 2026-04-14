@@ -947,13 +947,35 @@ function ExportDialog({ subjectId }) {
 
   async function handleExport() {
     setExporting(true);
-    if (allTopics) {
-      for (const fmt of selectedFormats) await exportQuestions(subjectId, null, fmt);
-    } else {
-      for (const tag of selectedTopics) {
-        for (const fmt of selectedFormats) await exportQuestions(subjectId, tag, fmt);
+    // Build one workbook with selected formats and topics
+    const XLSX_LIB = await import('xlsx');
+    const wb = XLSX_LIB.utils.book_new();
+    const topicsList = allTopics ? [null] : selectedTopics;
+
+    for (const fmt of selectedFormats) {
+      for (const topicTag of topicsList) {
+        let query = supabase.from(fmt).select('*').eq('subject_id', subjectId).eq('is_active', true);
+        if (topicTag) query = query.eq('topic_tag', topicTag);
+        const { data } = await query;
+        if (!data || !data.length) continue;
+
+        const sheetLabel = { questions: 'Тест', blitz_questions: 'Бліц', logical_pairs_questions: 'Пари', gallery_questions: 'Галерея', seven_questions: 'Сімка' }[fmt] || fmt;
+        const sheetName = (topicTag ? `${sheetLabel}_${topicTag}` : sheetLabel).substring(0, 31);
+
+        let rows;
+        if (fmt === 'questions') rows = data.map(q => ({ Тема: q.topic_tag, 'Текст питання': q.question_text, 'Варіант A': q.options?.[0], 'Варіант B': q.options?.[1], 'Варіант C': q.options?.[2], 'Варіант D': q.options?.[3], 'Правильна': String.fromCharCode(65 + (q.correct_index||0)), Пояснення: q.explanation, Складність: q.difficulty, 'URL фото': q.image_url||'' }));
+        else if (fmt === 'blitz_questions') rows = data.map(q => ({ Тема: q.topic_tag, Твердження: q.text, Відповідь: q.is_true?'ТАК':'НІ', Пояснення: q.explanation, 'URL фото': q.image_url||'' }));
+        else if (fmt === 'logical_pairs_questions') rows = data.map(q => ({ Тема: q.topic_tag, Інструкція: q.instruction, 'Ліва 1': q.left_items?.[0]?.text, 'Ліва 2': q.left_items?.[1]?.text, 'Ліва 3': q.left_items?.[2]?.text, 'Ліва 4': q.left_items?.[3]?.text, 'Права А': q.right_items?.[0]?.text, 'Права Б': q.right_items?.[1]?.text, 'Права В': q.right_items?.[2]?.text, 'Права Г': q.right_items?.[3]?.text, 'Права Д': q.right_items?.[4]?.text||'' }));
+        else if (fmt === 'gallery_questions') rows = data.map(q => ({ Тема: q.topic_tag, 'Текст': q.question_text, 'A': q.options?.[0], 'B': q.options?.[1], 'C': q.options?.[2], 'D': q.options?.[3], 'Правильна': String.fromCharCode(65+(q.correct_index||0)), Пояснення: q.explanation, 'URL фото': q.image_url||'' }));
+        else if (fmt === 'seven_questions') rows = data.map(q => ({ Тема: q.topic_tag, Текст: q.text, '1': q.options?.[0], '2': q.options?.[1], '3': q.options?.[2], '4': q.options?.[3], '5': q.options?.[4], '6': q.options?.[5], '7': q.options?.[6], 'Прав.1': (q.correct_answers?.[0]??-1)+1, 'Прав.2': (q.correct_answers?.[1]??-1)+1, 'Прав.3': (q.correct_answers?.[2]??-1)+1, Пояснення: q.explanation }));
+        else rows = data.map(q => ({ id: q.id, data: JSON.stringify(q) }));
+
+        const ws = XLSX_LIB.utils.json_to_sheet(rows);
+        ws['!cols'] = Object.keys(rows[0]).map(k => ({ wch: Math.max(String(k).length + 2, 15) }));
+        XLSX_LIB.utils.book_append_sheet(wb, ws, sheetName);
       }
     }
+    XLSX_LIB.writeFile(wb, `export_${subjectId}.xlsx`);
     setExporting(false);
     setOpen(false);
   }
