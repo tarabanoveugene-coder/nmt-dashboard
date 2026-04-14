@@ -491,7 +491,7 @@ function DrillDown({ subject, user }) {
         {level === 'questions' && fmt.id === 'sevens' && <GenericTable sid={subject.id} tag={topic.tag} table="seven_questions" textKey="text" />}
         {level === 'questions' && (fmt.id === 'express' || fmt.id === 'thematic') && <GenericTable sid={subject.id} tag={topic.tag} table="questions" textKey="question_text" />}
         {level === 'exam-folders' && <ExamFoldersView sid={subject.id} onSelect={setFolder} />}
-        {level === 'exam-questions' && <GenericTable sid={subject.id} tag={null} table="exam_questions" textKey="question_type" folderId={folder.id} />}
+        {level === 'exam-questions' && <ExamBuilderView sid={subject.id} folderId={folder.id} folderName={folder.name} />}
       </div>
     </div>
   );
@@ -727,6 +727,175 @@ function ExamFoldersView({ sid, onSelect }) {
         ))}
       </div>
       {!folders.length && <Empty text="Створіть першу папку" />}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// EXAM BUILDER (two-panel: composition + question bank)
+// ══════════════════════════════════════════════════════════════════════════
+const EXAM_SOURCES = [
+  { table: 'questions', label: 'Тест', textKey: 'question_text', type: 'test' },
+  { table: 'blitz_questions', label: 'Бліц', textKey: 'text', type: 'blitz' },
+  { table: 'logical_pairs_questions', label: 'Пари', textKey: 'instruction', type: 'pairs' },
+  { table: 'gallery_questions', label: 'Галерея', textKey: 'question_text', type: 'gallery' },
+  { table: 'seven_questions', label: 'Сімка', textKey: 'text', type: 'seven' },
+];
+
+function ExamBuilderView({ sid, folderId, folderName }) {
+  const { user } = useAuth();
+  const canEdit = useCanEdit();
+  // Left panel: exam composition
+  const [examItems, setExamItems] = useState([]); const [loadingExam, setLoadingExam] = useState(true);
+  // Right panel: question bank
+  const [bankItems, setBankItems] = useState([]); const [loadingBank, setLoadingBank] = useState(false);
+  const [bankFilter, setBankFilter] = useState('questions');
+  const [search, setSearch] = useState('');
+  const [bankTopic, setBankTopic] = useState('');
+  const [topics, setTopics] = useState([]);
+
+  async function loadExam() { setLoadingExam(true);
+    const { data } = await supabase.from('exam_questions').select('*').eq('folder_id', folderId).eq('is_active', true).order('sort_order');
+    setExamItems(data || []); setLoadingExam(false);
+  }
+
+  async function loadBank() { setLoadingBank(true);
+    const src = EXAM_SOURCES.find(s => s.table === bankFilter);
+    let q = supabase.from(src.table).select('*').eq('subject_id', sid).eq('is_active', true).eq('publish_status', 'published').order('updated_at', { ascending: false }).limit(500);
+    if (bankTopic) q = q.eq('topic_tag', bankTopic);
+    const { data } = await q;
+    setBankItems(data || []); setLoadingBank(false);
+  }
+
+  async function loadTopics() {
+    const { data } = await supabase.from('topics').select('tag, name').eq('subject_id', sid).eq('is_active', true).order('sort_order');
+    setTopics(data || []);
+  }
+
+  useEffect(() => { loadExam(); loadTopics(); }, [folderId]);
+  useEffect(() => { loadBank(); }, [bankFilter, bankTopic]);
+
+  const src = EXAM_SOURCES.find(s => s.table === bankFilter);
+  const filteredBank = search.trim()
+    ? bankItems.filter(q => {
+        const text = (q[src.textKey] || q.question_text || q.text || q.instruction || JSON.stringify(q.question_data || {})).toLowerCase();
+        return text.includes(search.toLowerCase());
+      })
+    : bankItems;
+
+  // Check which bank items are already in exam
+  const examDataIds = new Set(examItems.map(e => e.question_data?.source_id));
+
+  async function addToExam(q) {
+    const src2 = EXAM_SOURCES.find(s => s.table === bankFilter);
+    const questionData = { ...q, source_table: bankFilter, source_id: q.id };
+    await supabase.from('exam_questions').insert({
+      folder_id: folderId, subject_id: sid, question_type: src2.type,
+      question_data: questionData, sort_order: examItems.length, is_active: true, publish_status: 'draft',
+    });
+    logAction(user, 'add_to_exam', 'exam', folderId, { source: bankFilter, qid: q.id });
+    loadExam();
+  }
+
+  async function removeFromExam(id) {
+    await supabase.from('exam_questions').delete().eq('id', id);
+    logAction(user, 'remove_from_exam', 'exam', folderId, { exam_question_id: id });
+    loadExam();
+  }
+
+  async function moveItem(idx, dir) {
+    const newItems = [...examItems];
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= newItems.length) return;
+    [newItems[idx], newItems[swapIdx]] = [newItems[swapIdx], newItems[idx]];
+    for (let i = 0; i < newItems.length; i++) {
+      await supabase.from('exam_questions').update({ sort_order: i }).eq('id', newItems[i].id);
+    }
+    loadExam();
+  }
+
+  const typeLabels = { test: 'Тест', blitz: 'Бліц', pairs: 'Пари', gallery: 'Галерея', seven: 'Сімка' };
+  const typeColors = { test: 'bg-blue-100 text-blue-700', blitz: 'bg-amber-100 text-amber-700', pairs: 'bg-purple-100 text-purple-700', gallery: 'bg-emerald-100 text-emerald-700', seven: 'bg-rose-100 text-rose-700' };
+
+  function getQuestionText(item) {
+    const d = item.question_data || {};
+    return d.question_text || d.text || d.instruction || JSON.stringify(d).substring(0, 80);
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" style={{ minHeight: '70vh' }}>
+      {/* LEFT: Exam composition */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-slate-800 text-lg flex items-center gap-2"><Trophy size={20} className="text-amber-500" /> Склад іспиту</h3>
+          <span className="text-sm text-slate-400">Питань: <strong className="text-slate-700">{examItems.length}</strong></span>
+        </div>
+        {loadingExam ? <Spinner /> : examItems.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-slate-400 text-sm">
+            <div className="text-center"><Inbox size={40} className="mx-auto mb-2 text-slate-300" /><p>Додайте питання з правої панелі</p></div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto space-y-2 max-h-[65vh]">
+            {examItems.map((item, idx) => (
+              <div key={item.id} className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-100 group hover:border-amber-300 transition-colors">
+                <span className="text-xs text-slate-400 w-6 text-center font-mono">{idx + 1}</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${typeColors[item.question_type] || 'bg-slate-100 text-slate-600'}`}>{typeLabels[item.question_type] || item.question_type}</span>
+                <span className="flex-1 text-sm text-slate-700 line-clamp-1">{getQuestionText(item)}</span>
+                {canEdit && <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => moveItem(idx, -1)} disabled={idx === 0} className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30"><ChevronLeft size={14} className="rotate-90" /></button>
+                  <button onClick={() => moveItem(idx, 1)} disabled={idx === examItems.length - 1} className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30"><ChevronLeft size={14} className="-rotate-90" /></button>
+                  <button onClick={() => removeFromExam(item.id)} className="p-1 text-slate-400 hover:text-red-600"><X size={14} /></button>
+                </div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* RIGHT: Question bank */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-slate-800 text-lg flex items-center gap-2"><BookOpen size={20} className="text-blue-500" /> База питань</h3>
+          <span className="text-sm text-slate-400">Знайдено: <strong className="text-slate-700">{filteredBank.length}</strong></span>
+        </div>
+        {/* Filters */}
+        <div className="flex gap-2 mb-3 flex-wrap">
+          {EXAM_SOURCES.map(s => (
+            <button key={s.table} onClick={() => { setBankFilter(s.table); setSearch(''); setBankTopic(''); }}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${bankFilter === s.table ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{s.label}</button>
+          ))}
+        </div>
+        <div className="flex gap-2 mb-3">
+          <div className="relative flex-1">
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Пошук по тексту..." className="inp w-full pl-9" />
+            <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          </div>
+          <select value={bankTopic} onChange={e => setBankTopic(e.target.value)} className="inp w-44">
+            <option value="">Усі теми</option>
+            {topics.map(t => <option key={t.tag} value={t.tag}>{t.name}</option>)}
+          </select>
+        </div>
+        {/* List */}
+        {loadingBank ? <Spinner /> : (
+          <div className="flex-1 overflow-y-auto space-y-1.5 max-h-[55vh]">
+            {filteredBank.map(q => {
+              const text = q[src.textKey] || q.question_text || q.text || q.instruction || '';
+              const alreadyAdded = examDataIds.has(q.id);
+              return (
+                <div key={q.id} className={`flex items-center gap-2 p-3 rounded-xl border transition-colors ${alreadyAdded ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-100 hover:border-blue-300'}`}>
+                  <span className="flex-1 text-sm text-slate-700 line-clamp-1">{text}</span>
+                  <span className="text-xs text-slate-400 font-mono shrink-0">{q.topic_tag || ''}</span>
+                  {canEdit && (alreadyAdded
+                    ? <span className="text-emerald-500 shrink-0"><CheckCircle2 size={18} /></span>
+                    : <button onClick={() => addToExam(q)} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium shrink-0 flex items-center gap-1"><Plus size={12} /> Додати</button>
+                  )}
+                </div>
+              );
+            })}
+            {!filteredBank.length && <Empty text="Немає питань" />}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
