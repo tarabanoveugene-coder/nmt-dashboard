@@ -554,7 +554,7 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
   const canEdit = useCanEdit();
   const [topics, setTopics] = useState([]); const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false); const [editId, setEditId] = useState(null);
-  const [newName, setNewName] = useState(''); const [newTag, setNewTag] = useState('');
+  const [newName, setNewName] = useState('');
 
   async function load() { setLoading(true);
     const { data: t } = await supabase.from('topics').select('*').eq('subject_id', subjectId).eq('is_active', true).order('sort_order');
@@ -565,7 +565,14 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
   useEffect(() => { load(); }, [subjectId, formatTable]);
 
   function slug(s) { return s.toLowerCase().replace(/[іїєґ]/g, c => ({ і: 'i', ї: 'yi', є: 'ye', ґ: 'g' }[c] || c)).replace(/[а-яё]/g, c => { const m = 'абвгдежзийклмнопрстуфхцчшщъыьэюя'; const l = 'abvgdezhziyklmnoprstufkhtschchshschyyyeyuya'.match(/.{1,2}/g) || []; const i = m.indexOf(c); return i >= 0 ? (l[i] || '') : c; }).replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
-  async function addTopic(e) { e.preventDefault(); if (!newName.trim()) return; await supabase.from('topics').insert({ name: newName.trim(), tag: newTag.trim() || slug(newName.trim()), subject_id: subjectId, sort_order: topics.length, is_active: true }); logAction(user, 'create', 'topic', null, { name: newName.trim() }); setNewName(''); setNewTag(''); setShowAdd(false); load(); }
+  async function addTopic(e) { e.preventDefault(); if (!newName.trim()) return;
+    const lines = newName.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 30);
+    if (!lines.length) return;
+    const rows = lines.map((name, i) => ({ name, tag: slug(name), subject_id: subjectId, sort_order: topics.length + i, is_active: true }));
+    await supabase.from('topics').insert(rows);
+    for (const r of rows) logAction(user, 'create', 'topic', null, { name: r.name });
+    setNewName(''); setShowAdd(false); load();
+  }
   async function renameTopic(id, name) { await supabase.from('topics').update({ name }).eq('id', id); logAction(user, 'update', 'topic', id, { name }); setEditId(null); load(); }
 
   const [showImport, setShowImport] = useState(false);
@@ -586,11 +593,16 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
         </div>
       </div>
       {showImport && canEdit && <ExcelImport formatTable={formatTable} subjectId={subjectId} onImported={() => { setShowImport(false); load(); }} />}
-      {showAdd && canEdit && <form onSubmit={addTopic} className="bg-white border border-emerald-200 rounded-xl p-4 flex gap-3 items-end shadow-sm">
-        <div className="flex-1"><label className="block text-sm font-medium text-slate-600 mb-1">Назва</label><input value={newName} onChange={e => setNewName(e.target.value)} className="inp w-full" required /></div>
-        <div className="w-48"><label className="block text-sm font-medium text-slate-600 mb-1">Тег</label><input value={newTag || slug(newName)} onChange={e => setNewTag(e.target.value)} className="inp w-full" /></div>
-        <button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg"><Check size={16} /></button>
-        <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-slate-500"><X size={16} /></button>
+      {showAdd && canEdit && <form onSubmit={addTopic} className="bg-white border border-emerald-200 rounded-xl p-4 shadow-sm space-y-3">
+        <div className="flex justify-between items-center">
+          <label className="block text-sm font-medium text-slate-600">Назви тем <span className="text-slate-400 font-normal">(по одній на рядок, до 30)</span></label>
+          <div className="flex gap-2">
+            <button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg flex items-center gap-1.5 text-sm font-medium"><Check size={16} /> Додати {newName.split('\n').filter(l => l.trim()).length || 0}</button>
+            <button type="button" onClick={() => { setShowAdd(false); setNewName(''); }} className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-lg"><X size={16} /></button>
+          </div>
+        </div>
+        <textarea value={newName} onChange={e => { const lines = e.target.value.split('\n'); if (lines.length <= 30) setNewName(e.target.value); }} className="inp w-full" rows={Math.min(Math.max(newName.split('\n').length + 1, 3), 15)} placeholder={"Київська Русь\nКозацька доба\nНова історія України"} required />
+        {newName.trim() && <div className="text-xs text-slate-400">Буде додано: {newName.split('\n').filter(l => l.trim()).length} тем (макс. 30)</div>}
       </form>}
       {!topics.length && !showAdd ? <Empty text="Додайте першу тему" /> :
         <Table heads={['#', 'Тема', 'Тег', 'Питань', '']}>
