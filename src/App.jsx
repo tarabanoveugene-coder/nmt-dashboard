@@ -3,6 +3,7 @@ import { supabase } from './lib/supabase';
 import ExcelImport, { downloadTemplate, TEMPLATES } from './ExcelImport';
 import { FORM_MAP } from './QuestionForms';
 import { logAction } from './adminLogger';
+import { exportQuestions } from './ExcelExport';
 import {
   LayoutDashboard, BookOpen, Edit, Trash2, Plus, Activity, Landmark,
   BookText, Calculator, Globe, Microscope, Earth, FlaskConical, Zap,
@@ -575,6 +576,7 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
       <div className="flex justify-between items-center">
         <span className="text-sm text-slate-500">Тем: <strong>{topics.length}</strong></span>
         <div className="flex gap-2">
+          <button onClick={() => exportQuestions(subjectId, null, formatTable)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-medium transition-colors border border-slate-200"><Download size={14} /> Експорт всіх</button>
           {canEdit && hasTemplate && <>
             <button onClick={() => downloadTemplate(formatTable)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium"><Download size={14} /> Шаблон .xlsx</button>
             <button onClick={() => setShowImport(!showImport)} className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-sm font-medium"><Upload size={14} /> Імпорт з Excel</button>
@@ -601,6 +603,7 @@ function TopicsTable({ subjectId, formatTable, onSelect }) {
               <td className="px-6 py-4"><span className="bg-slate-100 text-slate-700 py-1 px-3 rounded-full text-xs font-semibold">{tp.cnt}</span></td>
               <td className="px-6 py-4 text-right flex justify-end gap-2">
                 <button onClick={() => onSelect(tp)} className="px-4 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg text-sm font-medium">Відкрити</button>
+                <Abtn icon={<Download size={14} />} onClick={() => exportQuestions(subjectId, tp.tag, formatTable)} />
                 {canEdit && <Abtn icon={<Edit size={16} />} onClick={() => setEditId(tp.id)} />}
                 {canEdit && <Abtn icon={<Trash2 size={16} />} danger onClick={async () => { if (!confirm('Деактивувати?')) return; await supabase.from('topics').update({ is_active: false }).eq('id', tp.id); logAction(user, 'deactivate', 'topic', tp.id, { name: tp.name }); load(); }} />}
               </td>
@@ -637,6 +640,7 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
         <span className="text-sm text-slate-500">Знайдено: <strong>{items.length}</strong></span>
         {canEdit && (
           <div className="flex gap-2">
+            <button onClick={() => exportQuestions(sid, tag, table)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-medium transition-colors border border-slate-200"><Download size={14} /> Експорт</button>
             {hasTemplate && <>
               <button onClick={() => downloadTemplate(table)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors"><Download size={14} /> Шаблон .xlsx</button>
               <button onClick={() => { setShowImport(!showImport); setFormId(null); }} className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-sm font-medium transition-colors"><Upload size={14} /> Імпорт з Excel</button>
