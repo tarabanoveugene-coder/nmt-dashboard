@@ -650,6 +650,7 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
   const [items, setItems] = useState([]); const [loading, setLoading] = useState(true);
   const [showImport, setShowImport] = useState(false);
   const [formId, setFormId] = useState(null); // null=hidden, 'new'=add, uuid=edit
+  const [allTopics, setAllTopics] = useState([]);
   const hasTemplate = !!TEMPLATES[table];
   const FormComponent = FORM_MAP[table];
   async function load() { setLoading(true);
@@ -660,6 +661,8 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
     const { data } = await q; setItems(data || []); setLoading(false);
   }
   useEffect(() => { load(); }, [sid, tag, table, folderId]);
+  useEffect(() => { if (sid && tag) { supabase.from('topics').select('tag, name').eq('subject_id', sid).eq('is_active', true).order('sort_order').then(({ data }) => setAllTopics(data || [])); } }, [sid]);
+  async function moveToTopic(qId, newTag) { await supabase.from(table).update({ topic_tag: newTag }).eq('id', qId); logAction(user, 'move_topic', table.replace('_questions',''), qId, { from: tag, to: newTag }); load(); }
   if (loading) return <Spinner />;
   return (
     <div className="space-y-4">
@@ -678,12 +681,17 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
       </div>
       {showImport && canEdit && <ExcelImport formatTable={table} subjectId={sid} topicTag={tag} onImported={() => { setShowImport(false); load(); }} />}
       {formId && canEdit && (() => { const FC = FormComponent || FORM_MAP.questions; return <FC sid={sid} tag={tag} qid={formId === 'new' ? null : formId} onDone={() => { setFormId(null); load(); }} onCancel={() => setFormId(null)} />; })()}
-      <Table heads={['#', 'Зміст', 'Тип', canEdit ? '' : null].filter(Boolean)}>
+      <Table heads={['#', 'Зміст', 'Тип', tag && canEdit ? 'Тема' : null, canEdit ? '' : null].filter(Boolean)}>
         {items.map((q, i) => (
           <tr key={q.id} className="hover:bg-slate-50/80 group">
             <td className="px-6 py-4 text-slate-400 text-xs text-center">{i + 1}</td>
             <td className="px-6 py-4 font-medium text-slate-800 max-w-lg"><div className="line-clamp-2">{q[textKey] || JSON.stringify(q.question_data || {}).substring(0, 80)}</div></td>
             <td className="px-6 py-4 text-xs text-slate-500">{q.format || q.question_type || table.replace('_questions', '')}</td>
+            {tag && canEdit && <td className="px-6 py-4">
+              <select value={q.topic_tag || ''} onChange={e => moveToTopic(q.id, e.target.value)} className="inp text-xs py-1 px-2 w-40">
+                {allTopics.map(t => <option key={t.tag} value={t.tag}>{t.name}</option>)}
+              </select>
+            </td>}
             {canEdit && <td className="px-6 py-4 flex justify-end gap-1 opacity-0 group-hover:opacity-100">
               {FormComponent && <Abtn icon={<Edit size={16} />} onClick={() => { setFormId(q.id); setShowImport(false); }} />}
               <MoveButton question={q} fromTable={table} sid={sid} onMoved={load} />
