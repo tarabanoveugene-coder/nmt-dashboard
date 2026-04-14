@@ -866,10 +866,7 @@ function ExamBuilderView({ sid, folderId, folderName }) {
           ))}
         </div>
         <div className="flex gap-2 mb-3">
-          <div className="relative flex-1">
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Пошук по тексту..." className="inp w-full pl-9" />
-            <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          </div>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Пошук по тексту..." className="inp flex-1" />
           <select value={bankTopic} onChange={e => setBankTopic(e.target.value)} className="inp w-44">
             <option value="">Усі теми</option>
             {topics.map(t => <option key={t.tag} value={t.tag}>{t.name}</option>)}
