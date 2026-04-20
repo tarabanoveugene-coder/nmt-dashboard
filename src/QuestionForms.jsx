@@ -115,19 +115,23 @@ export function BlitzForm({ sid, tag, qid, onDone, onCancel }) {
 // ══════════════════════════════════════════════════════════════════════════
 export function PairsForm({ sid, tag, qid, onDone, onCancel }) {
   const RID = ['А', 'Б', 'В', 'Г', 'Д'];
-  const [f, setF] = useState({ instruction: 'Встановіть відповідність', left: ['', '', '', ''], right: ['', '', '', '', ''], pairs: { '1': 'А', '2': 'Б', '3': 'В', '4': 'Г' }, explanation: '', image_url: '' });
+  const DEFAULT_SEQUENCE_RIGHT = ['1', '2', '3', '4', ''];
+  const [f, setF] = useState({ instruction: 'Встановіть відповідність', left: ['', '', '', ''], right: ['', '', '', '', ''], pairs: { '1': 'А', '2': 'Б', '3': 'В', '4': 'Г' }, explanation: '', image_url: '', hide_right_column: false });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (qid) supabase.from('logical_pairs_questions').select('*').eq('id', qid).single().then(({ data: d }) => { if (d) {
     const rightTexts = (d.right_items || []).map(i => i.text);
     while (rightTexts.length < 5) rightTexts.push('');
-    setF({ instruction: d.instruction, left: (d.left_items || []).map(i => i.text), right: rightTexts, pairs: d.correct_pairs || { '1': 'А', '2': 'Б', '3': 'В', '4': 'Г' }, explanation: d.explanation || '', image_url: d.image_url || '' });
+    setF({ instruction: d.instruction, left: (d.left_items || []).map(i => i.text), right: rightTexts, pairs: d.correct_pairs || { '1': 'А', '2': 'Б', '3': 'В', '4': 'Г' }, explanation: d.explanation || '', image_url: d.image_url || '', hide_right_column: d.hide_right_column === true });
   }}); }, [qid]);
 
   async function submit(e) {
     e.preventDefault(); setSaving(true);
-    const rightItems = f.right.map((t, i) => ({ id: RID[i], text: t })).filter(item => item.text.trim() !== '');
-    const p = { instruction: f.instruction, left_items: f.left.map((t, i) => ({ id: String(i + 1), text: t })), right_items: rightItems, correct_pairs: f.pairs, explanation: f.explanation, difficulty: 1, image_url: f.image_url || null, subject_id: sid, topic_tag: tag, is_active: true, publish_status: 'draft', updated_at: new Date().toISOString() };
+    // When right column is hidden (sequence-only questions), auto-fill with 1/2/3/4
+    // so the test UI's matrix still has data to display.
+    const rightSource = f.hide_right_column ? DEFAULT_SEQUENCE_RIGHT : f.right;
+    const rightItems = rightSource.map((t, i) => ({ id: RID[i], text: t })).filter(item => item.text.trim() !== '');
+    const p = { instruction: f.instruction, left_items: f.left.map((t, i) => ({ id: String(i + 1), text: t })), right_items: rightItems, correct_pairs: f.pairs, explanation: f.explanation, difficulty: 1, image_url: f.image_url || null, subject_id: sid, topic_tag: tag, is_active: true, publish_status: 'draft', updated_at: new Date().toISOString(), hide_right_column: f.hide_right_column };
     if (qid) { delete p.publish_status; await supabase.from('logical_pairs_questions').update(p).eq('id', qid); } else await supabase.from('logical_pairs_questions').insert(p);
     logAction(getUser(), qid ? 'update' : 'create', 'pairs', qid, { text: f.instruction?.substring(0, 80) });
     setSaving(false); onDone();
@@ -138,7 +142,11 @@ export function PairsForm({ sid, tag, qid, onDone, onCancel }) {
       <Field label="Інструкція">
         <input value={f.instruction} onChange={e => setF({ ...f, instruction: e.target.value })} className="w-full bg-white border border-slate-200 text-slate-800 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm" />
       </Field>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none -mt-2">
+        <input type="checkbox" checked={f.hide_right_column} onChange={e => setF({ ...f, hide_right_column: e.target.checked })} className="w-4 h-4 accent-indigo-600" />
+        <span>Приховати праву колонку (питання на послідовність)</span>
+      </label>
+      <div className={`grid gap-8 ${f.hide_right_column ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
         <div>
           <h4 className="text-sm font-medium text-slate-700 mb-3">Ліва колонка</h4>
           <div className="space-y-3">
@@ -158,7 +166,7 @@ export function PairsForm({ sid, tag, qid, onDone, onCancel }) {
             ))}
           </div>
         </div>
-        <div>
+        {!f.hide_right_column && <div>
           <h4 className="text-sm font-medium text-slate-700 mb-3">Права колонка</h4>
           <div className="space-y-3">
             {f.right.map((v, i) => {
@@ -173,7 +181,7 @@ export function PairsForm({ sid, tag, qid, onDone, onCancel }) {
               );
             })}
           </div>
-        </div>
+        </div>}
       </div>
       <Field label="Пояснення">
         <textarea value={f.explanation} onChange={e => setF({ ...f, explanation: e.target.value })} rows={3}
