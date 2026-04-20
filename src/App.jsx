@@ -11,7 +11,7 @@ import {
   Save, X, Check, Link, Upload, Download, Trophy, ShieldAlert, ShieldCheck, Eye, ArrowRightLeft, Loader2,
   Key, RefreshCw, Copy, Lock, Headset, Users, UserPlus, Radio,
   CreditCard, TrendingUp, Calendar, Settings, MessageSquare, ScrollText,
-  Inbox, Bug, Lightbulb, MoreHorizontal, Ban, Filter,
+  FileText, Inbox, Bug, Lightbulb, MoreHorizontal, Ban, Filter,
   ChevronLeft, CheckCircle2, Image as ImageIcon
 } from 'lucide-react';
 
@@ -133,6 +133,7 @@ function AppInner() {
           {canSeeUsers && <SidebarItem icon={<ShieldCheck size={20} />} label="Користувачі (Адмін)" active={activeMenu === 'users'} onClick={() => setActiveMenu('users')} />}
           {(user.role === 'superadmin' || user.role === 'support') && <SidebarItem icon={<MessageSquare size={20} />} label="Запити користувачів" active={activeMenu === 'requests'} onClick={() => setActiveMenu('requests')} />}
           {user.role === 'superadmin' && <SidebarItem icon={<ScrollText size={20} />} label="Логі" active={activeMenu === 'logs'} onClick={() => setActiveMenu('logs')} />}
+          <SidebarItem icon={<FileText size={20} />} label="Документи" active={activeMenu === 'legal'} onClick={() => setActiveMenu('legal')} />
           <SidebarItem icon={<Settings size={20} />} label="Налаштування" active={activeMenu === 'settings'} onClick={() => setActiveMenu('settings')} />
         </nav>
         <div className="p-4 border-t border-slate-100 space-y-2">
@@ -148,6 +149,7 @@ function AppInner() {
             {activeMenu === 'users' && 'Керування доступом'}
             {activeMenu === 'requests' && 'Служба підтримки'}
             {activeMenu === 'logs' && 'Логі дій адміністрації'}
+            {activeMenu === 'legal' && 'Юридичні документи'}
             {activeMenu === 'settings' && 'Налаштування'}
           </h2>
           <div className="flex items-center gap-3">
@@ -161,6 +163,7 @@ function AppInner() {
           {activeMenu === 'users' && canSeeUsers && <UsersAdminView />}
           {activeMenu === 'requests' && <SupportRequestsView />}
           {activeMenu === 'logs' && user.role === 'superadmin' && <AdminLogsView />}
+          {activeMenu === 'legal' && <LegalDocumentsView user={user} />}
           {activeMenu === 'settings' && <Empty text="Налаштування у розробці" />}
         </div></div>
       </main>
@@ -1585,6 +1588,140 @@ function AdminLogsView() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// LEGAL DOCUMENTS (Terms / Privacy editor)
+// ══════════════════════════════════════════════════════════════════════════
+const LEGAL_DOCS = [
+  { id: 'terms_of_service', label: 'Умови використання' },
+  { id: 'privacy_policy', label: 'Політика конфіденційності' },
+];
+
+function LegalDocumentsView({ user }) {
+  const canEdit = useCanEdit();
+  const [activeId, setActiveId] = useState('terms_of_service');
+  const [doc, setDoc] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    setError('');
+    setSavedAt(null);
+    supabase.from('legal_documents').select('*').eq('id', activeId).single()
+      .then(({ data, error }) => {
+        if (error) { setError(error.message); setDoc(null); }
+        else setDoc(data);
+        setLoading(false);
+      });
+  }, [activeId]);
+
+  async function save() {
+    if (!doc) return;
+    setSaving(true); setError('');
+    const { error } = await supabase.from('legal_documents').update({
+      title: doc.title,
+      content: doc.content,
+      version: doc.version,
+      last_updated: doc.last_updated,
+      effective_date: doc.effective_date,
+      updated_at: new Date().toISOString(),
+      updated_by: user?.email || null,
+    }).eq('id', activeId);
+    setSaving(false);
+    if (error) { setError(error.message); return; }
+    setSavedAt(new Date());
+    logAction(user, 'update', 'legal_document', activeId, { version: doc.version });
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex gap-2 border-b border-slate-200">
+        {LEGAL_DOCS.map(d => (
+          <button
+            key={d.id}
+            onClick={() => setActiveId(d.id)}
+            className={`px-5 py-3 -mb-px border-b-2 text-sm font-medium transition-colors ${
+              activeId === d.id
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
+
+      {loading && <Spinner />}
+      {!loading && error && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
+      {!loading && doc && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1.5">Версія</label>
+              <input value={doc.version || ''} onChange={e => setDoc({ ...doc, version: e.target.value })} disabled={!canEdit} className="inp w-full" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1.5">Останнє оновлення</label>
+              <input value={doc.last_updated || ''} onChange={e => setDoc({ ...doc, last_updated: e.target.value })} disabled={!canEdit} className="inp w-full" placeholder="17 квітня 2026 р." />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1.5">Дата набрання чинності</label>
+              <input value={doc.effective_date || ''} onChange={e => setDoc({ ...doc, effective_date: e.target.value })} disabled={!canEdit} className="inp w-full" placeholder="17 квітня 2026 р." />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1.5">Заголовок</label>
+            <input value={doc.title || ''} onChange={e => setDoc({ ...doc, title: e.target.value })} disabled={!canEdit} className="inp w-full" />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm font-medium text-slate-600">Текст документа</label>
+              <span className="text-xs text-slate-400">
+                Markdown: <code className="bg-slate-100 px-1 rounded"># Розділ</code> · <code className="bg-slate-100 px-1 rounded">## Підрозділ</code> · <code className="bg-slate-100 px-1 rounded">- пункт</code> · порожній рядок = новий абзац
+              </span>
+            </div>
+            <textarea
+              value={doc.content || ''}
+              onChange={e => setDoc({ ...doc, content: e.target.value })}
+              disabled={!canEdit}
+              rows={28}
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 font-mono text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="# 1. Розділ&#10;&#10;Текст першого абзацу.&#10;&#10;- Перший пункт&#10;- Другий пункт"
+            />
+            <div className="text-xs text-slate-400 mt-1">{(doc.content || '').length} символів</div>
+          </div>
+
+          {canEdit && (
+            <div className="flex items-center gap-3 pt-2 border-t border-slate-100">
+              <button
+                onClick={save}
+                disabled={saving}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm"
+              >
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                {saving ? 'Збереження…' : 'Зберегти'}
+              </button>
+              {savedAt && (
+                <span className="text-xs text-emerald-600 flex items-center gap-1">
+                  <CheckCircle2 size={14} /> Збережено о {savedAt.toLocaleTimeString('uk-UA')}
+                </span>
+              )}
+              <span className="text-xs text-slate-400 ml-auto">Зміни одразу підтягнуться у застосунку при наступному відкритті екрану.</span>
+            </div>
+          )}
+          {!canEdit && (
+            <div className="text-xs text-slate-400 italic">У вас немає прав на редагування. Лише суперадмін і модератор можуть змінювати документи.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
