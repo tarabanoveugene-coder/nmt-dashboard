@@ -1029,8 +1029,26 @@ function SupportRequestsView() {
               {selected.attachments?.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-slate-100">
                   <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2 mb-4"><ImageIcon size={16} className="text-slate-400" /> Прикріплені фото</h4>
-                  <div className="flex gap-4 overflow-x-auto pb-2">
-                    {selected.attachments.map((url, i) => <img key={i} src={url} alt="" className="h-32 rounded-lg border object-cover shadow-sm" />)}
+                  <div className="flex flex-wrap gap-4 pb-2">
+                    {selected.attachments.map((att, i) => {
+                      // Support both legacy string entries and new {url,name,size,...} objects.
+                      const url = typeof att === 'string' ? att : att?.url;
+                      const name = typeof att === 'object' ? (att?.name || `Вкладення ${i + 1}`) : `Вкладення ${i + 1}`;
+                      const size = typeof att === 'object' && att?.size ? att.size : null;
+                      const sizeLabel = size ? (size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.round(size / 1024)} KB`) : null;
+                      if (!url) {
+                        return (
+                          <div key={i} className="px-3 py-2 rounded-lg bg-slate-100 text-xs text-slate-500">{att?.note || 'Вкладення недоступне'}</div>
+                        );
+                      }
+                      return (
+                        <a key={i} href={url} target="_blank" rel="noreferrer" className="group block">
+                          <img src={url} alt={name} className="h-40 w-40 object-cover rounded-lg border border-slate-200 shadow-sm group-hover:ring-2 group-hover:ring-blue-400 transition" />
+                          <div className="mt-1 text-xs text-slate-500 max-w-40 truncate" title={name}>{name}</div>
+                          {sizeLabel && <div className="text-[10px] text-slate-400">{sizeLabel}</div>}
+                        </a>
+                      );
+                    })}
                   </div>
                 </div>
               )}
