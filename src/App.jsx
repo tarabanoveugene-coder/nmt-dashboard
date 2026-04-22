@@ -713,31 +713,145 @@ function GenericTable({ sid, tag, table, textKey, folderId }) {
 // ══════════════════════════════════════════════════════════════════════════
 function ExamFoldersView({ sid, onSelect }) {
   const canEdit = useCanEdit();
-  const [folders, setFolders] = useState([]); const [loading, setLoading] = useState(true); const [newName, setNewName] = useState('');
-  async function load() { setLoading(true);
-    const { data } = await supabase.from('exam_folders').select('*').eq('subject_id', sid).eq('is_active', true).order('sort_order');
-    const { data: qd } = await supabase.from('exam_questions').select('folder_id').eq('subject_id', sid).eq('is_active', true);
-    const c = {}; (qd || []).forEach(r => { c[r.folder_id] = (c[r.folder_id] || 0) + 1; });
-    setFolders((data || []).map(f => ({ ...f, cnt: c[f.id] || 0 }))); setLoading(false);
+  const [folders, setFolders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null); // null = creating
+  const blank = { name: '', exam_type: 'NMT', year: new Date().getFullYear(), session_kind: 'main' };
+  const [draft, setDraft] = useState(blank);
+
+  async function load() {
+    setLoading(true);
+    const { data } = await supabase.from('exam_folders')
+      .select('*').eq('subject_id', sid).eq('is_active', true)
+      .order('exam_type').order('year', { ascending: false }).order('sort_order');
+    const { data: qd } = await supabase.from('exam_questions')
+      .select('folder_id').eq('subject_id', sid).eq('is_active', true);
+    const c = {};
+    (qd || []).forEach(r => { c[r.folder_id] = (c[r.folder_id] || 0) + 1; });
+    setFolders((data || []).map(f => ({ ...f, cnt: c[f.id] || 0 })));
+    setLoading(false);
   }
   useEffect(() => { load(); }, [sid]);
-  async function add(e) { e.preventDefault(); if (!newName.trim()) return; await supabase.from('exam_folders').insert({ name: newName.trim(), subject_id: sid, sort_order: folders.length }); setNewName(''); load(); }
+
+  function openCreate() { setEditing(null); setDraft(blank); setShowForm(true); }
+  function openEdit(f) {
+    setEditing(f);
+    setDraft({
+      name: f.name,
+      exam_type: f.exam_type || 'NMT',
+      year: f.year || new Date().getFullYear(),
+      session_kind: f.session_kind || 'main',
+    });
+    setShowForm(true);
+  }
+
+  async function save(e) {
+    e.preventDefault();
+    if (!draft.name.trim()) return;
+    const payload = {
+      name: draft.name.trim(),
+      exam_type: draft.exam_type,
+      year: parseInt(draft.year, 10) || null,
+      session_kind: draft.session_kind,
+      subject_id: sid,
+    };
+    if (editing) {
+      await supabase.from('exam_folders').update(payload).eq('id', editing.id);
+    } else {
+      await supabase.from('exam_folders').insert({ ...payload, sort_order: folders.length });
+    }
+    setShowForm(false);
+    setEditing(null);
+    load();
+  }
+
+  const TYPES = [
+    { v: 'NMT',   label: 'НМТ',     color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    { v: 'ZNO',   label: 'ЗНО',     color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    { v: 'TRIAL', label: 'Пробне',  color: 'bg-violet-50 text-violet-700 border-violet-200' },
+  ];
+  const SESSIONS = [
+    { v: 'main',       label: 'Основна сесія' },
+    { v: 'additional', label: 'Додаткова сесія' },
+    { v: 'demo',       label: 'Демонстраційний варіант' },
+    { v: 'trial',      label: 'Пробне' },
+  ];
+
   if (loading) return <Spinner />;
+
   return (
     <div className="space-y-4">
-      {canEdit && <form onSubmit={add} className="flex gap-3"><input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Назва нової папки..." className="inp flex-1" /><Btn type="submit"><Plus size={16} /> Створити</Btn></form>}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {folders.map(f => (
-          <div key={f.id} className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-amber-400 hover:shadow-md cursor-pointer group" onClick={() => onSelect(f)}>
-            <div className="flex items-start justify-between mb-3"><div className="p-3 bg-amber-50 text-amber-600 rounded-xl group-hover:bg-amber-500 group-hover:text-white"><FolderOpen size={24} /></div>
-              {canEdit && <Abtn icon={<Trash2 size={14} />} danger onClick={async e => { e.stopPropagation(); if (!confirm('Видалити папку?')) return; await supabase.from('exam_questions').delete().eq('folder_id', f.id); await supabase.from('exam_folders').delete().eq('id', f.id); load(); }} />}
-            </div>
-            <h3 className="font-semibold text-slate-800 text-lg mb-1">{f.name}</h3>
-            <div className="text-sm text-slate-500">Питань: <strong>{f.cnt}</strong></div>
+      {canEdit && (
+        <div className="flex justify-end">
+          <Btn onClick={openCreate}><Plus size={16} /> Створити іспит</Btn>
+        </div>
+      )}
+
+      {showForm && (
+        <form onSubmit={save} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-slate-800">{editing ? 'Редагувати іспит' : 'Новий іспит'}</h3>
+            <button type="button" onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
           </div>
-        ))}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Тип</label>
+              <div className="flex gap-1.5">
+                {TYPES.map(t => (
+                  <button key={t.v} type="button" onClick={() => setDraft({ ...draft, exam_type: t.v })}
+                    className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold border transition-colors ${draft.exam_type === t.v ? t.color : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Рік</label>
+              <input type="number" min="2000" max="2100" value={draft.year} onChange={e => setDraft({ ...draft, year: e.target.value })} className="inp w-full" required />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Сесія</label>
+              <select value={draft.session_kind} onChange={e => setDraft({ ...draft, session_kind: e.target.value })} className="inp w-full">
+                {SESSIONS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">Назва (відображається користувачам)</label>
+            <input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} placeholder={`Напр.: ${TYPES.find(t => t.v === draft.exam_type)?.label} ${draft.year} — ${SESSIONS.find(s => s.v === draft.session_kind)?.label}`} className="inp w-full" required />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">Скасувати</button>
+            <Btn type="submit"><Save size={16} /> Зберегти</Btn>
+          </div>
+        </form>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {folders.map(f => {
+          const t = TYPES.find(x => x.v === (f.exam_type || 'NMT')) || TYPES[0];
+          const s = SESSIONS.find(x => x.v === (f.session_kind || 'main')) || SESSIONS[0];
+          return (
+            <div key={f.id} className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-amber-400 hover:shadow-md cursor-pointer group" onClick={() => onSelect(f)}>
+              <div className="flex items-start justify-between mb-3">
+                <div className="p-3 bg-amber-50 text-amber-600 rounded-xl group-hover:bg-amber-500 group-hover:text-white"><FolderOpen size={24} /></div>
+                <div className="flex gap-1">
+                  {canEdit && <Abtn icon={<Edit size={14} />} onClick={e => { e.stopPropagation(); openEdit(f); }} />}
+                  {canEdit && <Abtn icon={<Trash2 size={14} />} danger onClick={async e => { e.stopPropagation(); if (!confirm('Видалити іспит?')) return; await supabase.from('exam_questions').delete().eq('folder_id', f.id); await supabase.from('exam_folders').delete().eq('id', f.id); load(); }} />}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${t.color}`}>{t.label}</span>
+                {f.year && <span className="text-xs font-semibold text-slate-500">{f.year}</span>}
+              </div>
+              <h3 className="font-semibold text-slate-800 text-base mb-1 leading-tight">{f.name}</h3>
+              <div className="text-xs text-slate-500">{s.label} · <strong>{f.cnt}</strong> питань</div>
+            </div>
+          );
+        })}
       </div>
-      {!folders.length && <Empty text="Створіть першу папку" />}
+      {!folders.length && <Empty text="Створіть перший іспит" />}
     </div>
   );
 }
