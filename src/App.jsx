@@ -11,7 +11,7 @@ import {
   Save, X, Check, Link, Upload, Download, Trophy, ShieldAlert, ShieldCheck, Eye, ArrowRightLeft, Loader2,
   Key, RefreshCw, Copy, Lock, Headset, Users, UserPlus, Radio,
   CreditCard, TrendingUp, Calendar, Settings, MessageSquare, ScrollText,
-  FileText, Inbox, Bug, Lightbulb, MoreHorizontal, Ban, Filter,
+  FileText, Inbox, Bug, Lightbulb, MoreHorizontal, Ban, Filter, GripVertical,
   ChevronLeft, CheckCircle2, Image as ImageIcon
 } from 'lucide-react';
 
@@ -872,6 +872,10 @@ function ExamBuilderView({ sid, folderId, folderName }) {
   const canEdit = useCanEdit();
   // Left panel: exam composition
   const [examItems, setExamItems] = useState([]); const [loadingExam, setLoadingExam] = useState(true);
+  // HTML5 drag-and-drop reorder state — index of currently-dragged item
+  // and the index it would land at if dropped now.
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dropIdx, setDropIdx] = useState(null);
   // Right panel: question bank
   const [bankItems, setBankItems] = useState([]); const [loadingBank, setLoadingBank] = useState(false);
   const [bankFilter, setBankFilter] = useState('questions');
@@ -933,11 +937,40 @@ function ExamBuilderView({ sid, folderId, folderName }) {
     const swapIdx = idx + dir;
     if (swapIdx < 0 || swapIdx >= newItems.length) return;
     [newItems[idx], newItems[swapIdx]] = [newItems[swapIdx], newItems[idx]];
-    for (let i = 0; i < newItems.length; i++) {
-      await supabase.from('exam_questions').update({ sort_order: i }).eq('id', newItems[i].id);
-    }
-    loadExam();
+    setExamItems(newItems);
+    await persistOrder(newItems);
   }
+
+  // Apply a new order both client-side (optimistic) and to Supabase.
+  async function persistOrder(items) {
+    const updates = items.map((it, i) =>
+      supabase.from('exam_questions').update({ sort_order: i }).eq('id', it.id)
+    );
+    await Promise.all(updates);
+    logAction(user, 'reorder_exam', 'exam', folderId, { count: items.length });
+  }
+
+  // ── HTML5 drag-and-drop reorder ────────────────────────────────────────
+  function onDragStart(idx) {
+    setDragIdx(idx);
+    setDropIdx(idx);
+  }
+  function onDragOver(e, idx) {
+    e.preventDefault();
+    if (dropIdx !== idx) setDropIdx(idx);
+  }
+  async function onDrop() {
+    if (dragIdx === null || dropIdx === null || dragIdx === dropIdx) {
+      setDragIdx(null); setDropIdx(null); return;
+    }
+    const newItems = [...examItems];
+    const [moved] = newItems.splice(dragIdx, 1);
+    newItems.splice(dropIdx, 0, moved);
+    setExamItems(newItems);
+    setDragIdx(null); setDropIdx(null);
+    await persistOrder(newItems);
+  }
+  function onDragEnd() { setDragIdx(null); setDropIdx(null); }
 
   const typeLabels = { test: 'Тест', blitz: 'Бліц', pairs: 'Пари', gallery: 'Галерея', seven: 'Сімка' };
   const typeColors = { test: 'bg-blue-100 text-blue-700', blitz: 'bg-amber-100 text-amber-700', pairs: 'bg-purple-100 text-purple-700', gallery: 'bg-emerald-100 text-emerald-700', seven: 'bg-rose-100 text-rose-700' };
@@ -961,18 +994,35 @@ function ExamBuilderView({ sid, folderId, folderName }) {
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto space-y-2 max-h-[65vh]">
-            {examItems.map((item, idx) => (
-              <div key={item.id} className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-100 group hover:border-amber-300 transition-colors">
-                <span className="text-xs text-slate-400 w-6 text-center font-mono">{idx + 1}</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${typeColors[item.question_type] || 'bg-slate-100 text-slate-600'}`}>{typeLabels[item.question_type] || item.question_type}</span>
-                <span className="flex-1 text-sm text-slate-700 line-clamp-1">{getQuestionText(item)}</span>
-                {canEdit && <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => moveItem(idx, -1)} disabled={idx === 0} className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30"><ChevronLeft size={14} className="rotate-90" /></button>
-                  <button onClick={() => moveItem(idx, 1)} disabled={idx === examItems.length - 1} className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30"><ChevronLeft size={14} className="-rotate-90" /></button>
-                  <button onClick={() => removeFromExam(item.id)} className="p-1 text-slate-400 hover:text-red-600"><X size={14} /></button>
-                </div>}
-              </div>
-            ))}
+            {examItems.map((item, idx) => {
+              const isDragging = dragIdx === idx;
+              const isDropTarget = dragIdx !== null && dropIdx === idx && dragIdx !== idx;
+              return (
+                <div
+                  key={item.id}
+                  draggable={canEdit}
+                  onDragStart={() => onDragStart(idx)}
+                  onDragOver={(e) => onDragOver(e, idx)}
+                  onDrop={onDrop}
+                  onDragEnd={onDragEnd}
+                  className={`flex items-center gap-2 p-3 rounded-xl border transition-all
+                    ${isDragging ? 'bg-amber-50 border-amber-400 opacity-50' : 'bg-slate-50 border-slate-100 hover:border-amber-300'}
+                    ${isDropTarget ? 'border-t-4 border-t-amber-500' : ''}
+                    ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}
+                    group`}
+                >
+                  {canEdit && <GripVertical size={16} className="text-slate-300 group-hover:text-slate-500 shrink-0" />}
+                  <span className="text-xs text-slate-400 w-6 text-center font-mono">{idx + 1}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${typeColors[item.question_type] || 'bg-slate-100 text-slate-600'}`}>{typeLabels[item.question_type] || item.question_type}</span>
+                  <span className="flex-1 text-sm text-slate-700 line-clamp-1">{getQuestionText(item)}</span>
+                  {canEdit && <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => moveItem(idx, -1)} disabled={idx === 0} className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30" title="Вгору"><ChevronLeft size={14} className="rotate-90" /></button>
+                    <button onClick={() => moveItem(idx, 1)} disabled={idx === examItems.length - 1} className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30" title="Вниз"><ChevronLeft size={14} className="-rotate-90" /></button>
+                    <button onClick={() => removeFromExam(item.id)} className="p-1 text-slate-400 hover:text-red-600" title="Видалити"><X size={14} /></button>
+                  </div>}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
