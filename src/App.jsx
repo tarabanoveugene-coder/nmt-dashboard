@@ -1350,41 +1350,65 @@ function QuestionShortcuts({ message }) {
   );
 }
 
-/** Modal that fetches a single question by id from its per-format table
- * and renders the editable fields read-only — text, options/pairs, correct
- * answer marker and explanation. Lets moderators inspect what the user
- * complained about without leaving the requests page. */
+/** Modal that fetches a single question by id from its per-format table.
+ * Defaults to a read-only QuestionPreview; clicking "Редагувати" swaps the
+ * body to the matching form component from FORM_MAP so moderators can fix
+ * the issue without leaving the requests view. */
 function QuestionViewerModal({ table, id, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const { user } = useAuth();
+  const canEdit = user?.role === 'superadmin' || user?.role === 'moderator';
+
+  async function load() {
+    try {
+      const { data: row, error } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
+      if (error) { setError(error.message); return; }
+      if (!row) { setError('Питання не знайдено — можливо, вже видалене.'); return; }
+      setData(row);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const { data: row, error } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
-        if (cancelled) return;
-        if (error) { setError(error.message); return; }
-        if (!row) { setError('Питання не знайдено — можливо, вже видалене.'); return; }
-        setData(row);
-      } catch (e) {
-        if (!cancelled) setError(String(e));
-      }
-    })();
+    (async () => { if (!cancelled) await load(); })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [table, id]);
+
+  const FormComponent = editing && data ? FORM_MAP[table] : null;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="font-bold text-slate-800">Питання</h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+          <h3 className="font-bold text-slate-800">{editing ? 'Редагувати питання' : 'Питання'}</h3>
+          <div className="flex items-center gap-2">
+            {data && !editing && canEdit && (
+              <button onClick={() => setEditing(true)} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5"><Edit size={14} /> Редагувати</button>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+          </div>
         </div>
         <div className="p-6 overflow-y-auto flex-1">
           {!data && !error && <div className="text-slate-400 text-sm">Завантаження…</div>}
           {error && <div className="text-rose-600 text-sm">{error}</div>}
-          {data && <QuestionPreview row={data} table={table} />}
+          {data && !editing && <QuestionPreview row={data} table={table} />}
+          {data && editing && FormComponent && (
+            <FormComponent
+              sid={data.subject_id}
+              tag={data.topic_tag}
+              qid={data.id}
+              onDone={async () => { setEditing(false); await load(); }}
+              onCancel={() => setEditing(false)}
+            />
+          )}
+          {data && editing && !FormComponent && (
+            <div className="text-rose-600 text-sm">Редактор для цього формату ще не реалізовано.</div>
+          )}
         </div>
       </div>
     </div>
