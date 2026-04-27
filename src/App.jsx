@@ -1219,7 +1219,8 @@ function SupportRequestsView() {
             </div>
           </div>
 
-          <div>
+          <div className="space-y-4">
+            {selected.category === 'question_error' && <QuestionShortcuts message={selected.message} />}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
               <h3 className="font-semibold text-slate-800 pb-2 border-b border-slate-100">Дії із запитом</h3>
               <div className="space-y-2">
@@ -1296,6 +1297,52 @@ function CatBadge({ cat }) {
   if (cat === 'idea') return <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-medium text-xs flex items-center gap-1.5 w-max"><Lightbulb size={14} /> Ідея</span>;
   if (cat === 'question_error') return <span className="px-3 py-1 rounded-full bg-fuchsia-50 text-fuchsia-700 font-medium text-xs flex items-center gap-1.5 w-max"><Bug size={14} /> Питання</span>;
   return <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-medium text-xs flex items-center gap-1.5 w-max"><MoreHorizontal size={14} /> Інше</span>;
+}
+
+/** Map app-side format label → Supabase table that owns the question. */
+const QUESTION_TABLES = {
+  'ТЕСТ': 'questions',
+  'БЛІЦ': 'blitz_questions',
+  'ГАЛЕРЕЯ': 'gallery_questions',
+  'ПАРИ': 'logical_pairs_questions',
+  "ОБЕРИ 3 з 7": 'seven_questions',
+};
+
+/** Side-panel actions for question_error reports — parses ID/format/topic
+ * out of the report message and offers quick-access shortcuts. */
+function QuestionShortcuts({ message }) {
+  const lines = (message || '').split('\n');
+  const get = (label) => {
+    const row = lines.find(l => l.startsWith(label));
+    return row ? row.slice(label.length).trim() : '';
+  };
+  const id = get('ID питання:');
+  const format = get('Формат:');
+  const topic = get('Тема:');
+  const table = QUESTION_TABLES[format];
+  if (!id) return null;
+
+  const supabaseUrl = `https://supabase.com/dashboard/project/ckqzicuurwauxxuejshf/editor?schema=public&filter=id%3Deq%3A${encodeURIComponent(id)}${table ? `&table=${encodeURIComponent(table)}` : ''}`;
+  const copyId = async () => {
+    try { await navigator.clipboard.writeText(id); } catch (_) {}
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-2xl border border-fuchsia-200 shadow-sm">
+      <h3 className="font-semibold text-fuchsia-700 pb-2 border-b border-fuchsia-100 mb-3 flex items-center gap-2"><Bug size={16} /> Питання</h3>
+      <dl className="text-xs space-y-1.5 mb-4">
+        {format && <div><dt className="text-slate-500 inline">Формат: </dt><dd className="font-semibold text-slate-700 inline">{format}</dd></div>}
+        {topic && <div><dt className="text-slate-500 inline">Тема: </dt><dd className="font-semibold text-slate-700 inline">{topic}</dd></div>}
+        <div className="break-all"><dt className="text-slate-500 inline">ID: </dt><dd className="font-mono text-slate-700 inline">{id}</dd></div>
+      </dl>
+      <div className="space-y-2">
+        <button onClick={copyId} className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Скопіювати ID</button>
+        {table && (
+          <a href={supabaseUrl} target="_blank" rel="noreferrer" className="block w-full py-2 px-3 bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-center rounded-lg text-xs font-semibold">Відкрити у Supabase</a>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function StatusBadge({ status }) {
