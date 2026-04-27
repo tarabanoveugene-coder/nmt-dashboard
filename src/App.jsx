@@ -1294,6 +1294,7 @@ function SupportRequestsView() {
 function CatBadge({ cat }) {
   if (cat === 'bug') return <span className="px-3 py-1 rounded-full bg-rose-50 text-rose-700 font-medium text-xs flex items-center gap-1.5 w-max"><Bug size={14} /> Помилка</span>;
   if (cat === 'idea') return <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-medium text-xs flex items-center gap-1.5 w-max"><Lightbulb size={14} /> Ідея</span>;
+  if (cat === 'question_error') return <span className="px-3 py-1 rounded-full bg-fuchsia-50 text-fuchsia-700 font-medium text-xs flex items-center gap-1.5 w-max"><Bug size={14} /> Питання</span>;
   return <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-medium text-xs flex items-center gap-1.5 w-max"><MoreHorizontal size={14} /> Інше</span>;
 }
 
