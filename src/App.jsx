@@ -1309,8 +1309,9 @@ const QUESTION_TABLES = {
 };
 
 /** Side-panel actions for question_error reports — parses ID/format/topic
- * out of the report message and offers quick-access shortcuts. */
+ * out of the report message and offers an inline question viewer. */
 function QuestionShortcuts({ message }) {
+  const [viewing, setViewing] = useState(false);
   const lines = (message || '').split('\n');
   const get = (label) => {
     const row = lines.find(l => l.startsWith(label));
@@ -1322,24 +1323,162 @@ function QuestionShortcuts({ message }) {
   const table = QUESTION_TABLES[format];
   if (!id) return null;
 
-  const supabaseUrl = `https://supabase.com/dashboard/project/ckqzicuurwauxxuejshf/editor?schema=public&filter=id%3Deq%3A${encodeURIComponent(id)}${table ? `&table=${encodeURIComponent(table)}` : ''}`;
   const copyId = async () => {
     try { await navigator.clipboard.writeText(id); } catch (_) {}
   };
 
   return (
-    <div className="bg-white p-6 rounded-2xl border border-fuchsia-200 shadow-sm">
-      <h3 className="font-semibold text-fuchsia-700 pb-2 border-b border-fuchsia-100 mb-3 flex items-center gap-2"><Bug size={16} /> Питання</h3>
-      <dl className="text-xs space-y-1.5 mb-4">
-        {format && <div><dt className="text-slate-500 inline">Формат: </dt><dd className="font-semibold text-slate-700 inline">{format}</dd></div>}
-        {topic && <div><dt className="text-slate-500 inline">Тема: </dt><dd className="font-semibold text-slate-700 inline">{topic}</dd></div>}
-        <div className="break-all"><dt className="text-slate-500 inline">ID: </dt><dd className="font-mono text-slate-700 inline">{id}</dd></div>
-      </dl>
-      <div className="space-y-2">
-        <button onClick={copyId} className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Скопіювати ID</button>
-        {table && (
-          <a href={supabaseUrl} target="_blank" rel="noreferrer" className="block w-full py-2 px-3 bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-center rounded-lg text-xs font-semibold">Відкрити у Supabase</a>
-        )}
+    <>
+      <div className="bg-white p-6 rounded-2xl border border-fuchsia-200 shadow-sm">
+        <h3 className="font-semibold text-fuchsia-700 pb-2 border-b border-fuchsia-100 mb-3 flex items-center gap-2"><Bug size={16} /> Питання</h3>
+        <dl className="text-xs space-y-1.5 mb-4">
+          {format && <div><dt className="text-slate-500 inline">Формат: </dt><dd className="font-semibold text-slate-700 inline">{format}</dd></div>}
+          {topic && <div><dt className="text-slate-500 inline">Тема: </dt><dd className="font-semibold text-slate-700 inline">{topic}</dd></div>}
+          <div className="break-all"><dt className="text-slate-500 inline">ID: </dt><dd className="font-mono text-slate-700 inline">{id}</dd></div>
+        </dl>
+        <div className="space-y-2">
+          {table && (
+            <button onClick={() => setViewing(true)} className="w-full py-2 px-3 bg-fuchsia-600 hover:bg-fuchsia-700 text-white rounded-lg text-xs font-semibold">Переглянути питання</button>
+          )}
+          <button onClick={copyId} className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Скопіювати ID</button>
+        </div>
+      </div>
+      {viewing && table && (
+        <QuestionViewerModal table={table} id={id} onClose={() => setViewing(false)} />
+      )}
+    </>
+  );
+}
+
+/** Modal that fetches a single question by id from its per-format table
+ * and renders the editable fields read-only — text, options/pairs, correct
+ * answer marker and explanation. Lets moderators inspect what the user
+ * complained about without leaving the requests page. */
+function QuestionViewerModal({ table, id, onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: row, error } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
+        if (cancelled) return;
+        if (error) { setError(error.message); return; }
+        if (!row) { setError('Питання не знайдено — можливо, вже видалене.'); return; }
+        setData(row);
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [table, id]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="font-bold text-slate-800">Питання</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+        </div>
+        <div className="p-6 overflow-y-auto flex-1">
+          {!data && !error && <div className="text-slate-400 text-sm">Завантаження…</div>}
+          {error && <div className="text-rose-600 text-sm">{error}</div>}
+          {data && <QuestionPreview row={data} table={table} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Format-aware read-only render of a question row. Handles the five
+ * per-format tables we ship: questions, blitz_questions,
+ * gallery_questions, logical_pairs_questions, seven_questions. */
+function QuestionPreview({ row, table }) {
+  const text = row.question_text || row.text || row.instruction || '';
+  const explanation = row.explanation || '';
+
+  return (
+    <div className="space-y-5 text-sm">
+      <div>
+        <div className="text-xs font-semibold text-slate-500 uppercase mb-1">Текст</div>
+        <div className="text-slate-800 whitespace-pre-wrap leading-relaxed">{text || <span className="text-slate-400">— порожньо —</span>}</div>
+      </div>
+
+      {row.image_url && (
+        <div>
+          <div className="text-xs font-semibold text-slate-500 uppercase mb-1">Зображення</div>
+          <img src={row.image_url} alt="" className="rounded-lg border border-slate-200 max-h-72" />
+        </div>
+      )}
+
+      {/* Standard / Gallery / Seven — array of options */}
+      {Array.isArray(row.options) && row.options.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Варіанти</div>
+          <ul className="space-y-2">
+            {row.options.map((opt, i) => {
+              const isCorrect = table === 'seven_questions'
+                ? Array.isArray(row.correct_answers) && row.correct_answers.includes(i)
+                : row.correct_index === i;
+              return (
+                <li key={i} className={`px-3 py-2 rounded-lg border text-sm ${isCorrect ? 'border-emerald-300 bg-emerald-50 text-emerald-800 font-semibold' : 'border-slate-200 text-slate-700'}`}>
+                  <span className="text-xs text-slate-400 mr-2">{String.fromCharCode(65 + i)}.</span>{opt}
+                  {isCorrect && <span className="ml-2 text-xs uppercase">правильно</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* Blitz — true/false */}
+      {table === 'blitz_questions' && typeof row.is_true === 'boolean' && (
+        <div>
+          <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Правильна відповідь</div>
+          <div className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${row.is_true ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+            {row.is_true ? 'ТАК' : 'НІ'}
+          </div>
+        </div>
+      )}
+
+      {/* Logical pairs */}
+      {table === 'logical_pairs_questions' && (
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Ліворуч</div>
+            <ul className="space-y-1">
+              {(row.left_items || []).map((it, i) => (
+                <li key={i} className="px-3 py-2 rounded-lg bg-slate-50 text-slate-700 text-sm">{i + 1}. {it.text}</li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Праворуч</div>
+            <ul className="space-y-1">
+              {(row.right_items || []).map((it, i) => (
+                <li key={i} className="px-3 py-2 rounded-lg bg-slate-50 text-slate-700 text-sm">{String.fromCharCode(65 + i)}. {it.text}</li>
+              ))}
+            </ul>
+          </div>
+          {row.correct_pairs && (
+            <div className="col-span-2">
+              <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Правильні пари</div>
+              <div className="text-slate-700 text-sm font-mono">{Object.entries(row.correct_pairs).map(([k, v]) => `${k} → ${v}`).join(', ')}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {explanation && (
+        <div>
+          <div className="text-xs font-semibold text-slate-500 uppercase mb-1">Пояснення</div>
+          <div className="text-slate-700 whitespace-pre-wrap leading-relaxed bg-blue-50 p-3 rounded-lg">{explanation}</div>
+        </div>
+      )}
+
+      <div className="text-xs text-slate-400 pt-3 border-t border-slate-100">
+        ID: <span className="font-mono">{row.id}</span> &bull; topic_tag: <span className="font-mono">{row.topic_tag || '—'}</span>
       </div>
     </div>
   );
